@@ -34,6 +34,16 @@ class HostTunnel {
   bool _connected = false;
   String? _lastError;
 
+  // Queue + waiter for binary body frames. The VPS sends:
+  //   {type:'req', hasBody:true} → binary frame → {type:'req-end'}
+  // …but the binary frame can land BEFORE _handleRequest gets a chance to
+  // start awaiting it. So _onFrame routes every binary into this queue,
+  // and _waitForOneBinaryFrame pulls from the queue (or installs a waiter
+  // if the queue is empty when called). This eliminates the race that was
+  // causing iPhone uploads to hit "no_body" on the host.
+  final List<Uint8List> _bodyQueue = [];
+  Completer<Uint8List?>? _bodyWaiter;
+
   bool get connected => _connected;
   String? get lastError => _lastError;
 
@@ -105,6 +115,21 @@ class HostTunnel {
     _connected = true;
     _backoffMs = 1000; // reset backoff on any successful frame
 
+    // Binary frames are upload bodies for an in-flight request envelope.
+    // Route them to the queue/waiter so _handleRequest picks them up,
+    // regardless of arrival order vs the req text frame.
+    if (data is List<int>) {
+      final bytes = data is Uint8List ? data : Uint8List.fromList(data);
+      final w = _bodyWaiter;
+      if (w != null && !w.isCompleted) {
+        _bodyWaiter = null;
+        w.complete(bytes);
+      } else {
+        _bodyQueue.add(bytes);
+      }
+      return;
+    }
+
     if (data is String) {
       Map<String, dynamic> msg;
       try { msg = jsonDecode(data) as Map<String, dynamic>; } catch (_) { return; }
@@ -119,11 +144,14 @@ class HostTunnel {
         return;
       }
       if (type == 'req') {
-        await _handleRequest(msg);
+        // Don't await — handle the request concurrently so subsequent
+        // text frames (req-end, next req) keep flowing through _onFrame.
+        // ignore: unawaited_futures
+        _handleRequest(msg);
         return;
       }
       if (type == 'req-end') {
-        // (no body upload from VPS in our protocol)
+        // (no body upload from VPS in our protocol — req-end is just a marker)
         return;
       }
     }
@@ -258,27 +286,22 @@ class HostTunnel {
     }
   }
 
-  // For v1 we expect bodies to arrive as a single binary frame right after
-  // the req envelope. We pause the main subscription, wait one frame,
-  // resume. If the main socket is being multiplexed beyond one upload at a
-  // time this would need refactoring — but VPS only sends one req at a time
-  // per socket so this is fine.
+  // Pulls the next binary frame from the queue, or installs a one-shot
+  // waiter for the next one to arrive. _onFrame routes every binary into
+  // here, so the order of "req text" vs "binary body" doesn't matter.
   Future<Uint8List?> _waitForOneBinaryFrame() async {
-    if (_sub == null || _channel == null) return null;
-    final completer = Completer<Uint8List?>();
-    _sub!.onData((data) {
-      if (completer.isCompleted) return;
-      if (data is List<int>) {
-        completer.complete(Uint8List.fromList(data));
-        // restore default handler
-        _sub!.onData((data) => _onFrame(data));
-      }
-    });
-    final result = await completer.future.timeout(
-      const Duration(seconds: 30),
-      onTimeout: () => null,
+    if (_bodyQueue.isNotEmpty) {
+      return _bodyQueue.removeAt(0);
+    }
+    final c = Completer<Uint8List?>();
+    _bodyWaiter = c;
+    return c.future.timeout(
+      const Duration(seconds: 60),
+      onTimeout: () {
+        if (identical(_bodyWaiter, c)) _bodyWaiter = null;
+        return null;
+      },
     );
-    return result;
   }
 
   void _onClosed(String reason) {

@@ -105,9 +105,13 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
       }
       if (mounted) {
         setState(() {});
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (mounted) setState(() => _jobs.remove(job));
-        });
+        // Auto-dismiss successful jobs only. Errored jobs stay visible
+        // until the user taps them — otherwise the error flashes by.
+        if (job.status == _JobStatus.done) {
+          Future.delayed(const Duration(milliseconds: 1200), () {
+            if (mounted) setState(() => _jobs.remove(job));
+          });
+        }
       }
     }
     await _refresh(silent: true);
@@ -136,9 +140,11 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
     }
     if (mounted) {
       setState(() {});
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) setState(() => _jobs.remove(job));
-      });
+      if (job.status == _JobStatus.done) {
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) setState(() => _jobs.remove(job));
+        });
+      }
     }
   }
 
@@ -281,7 +287,12 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
           ),
           if (_jobs.isNotEmpty) Positioned(
             left: 12, right: 12, bottom: 80,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [for (final j in _jobs) _ProgressTile(job: j)]),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              for (final j in _jobs) _ProgressTile(
+                job: j,
+                onDismiss: j.status == _JobStatus.error ? () => setState(() => _jobs.remove(j)) : null,
+              ),
+            ]),
           ),
         ],
       ),
@@ -325,13 +336,16 @@ class _TransferJob {
 }
 
 class _ProgressTile extends StatelessWidget {
-  const _ProgressTile({required this.job});
+  const _ProgressTile({required this.job, this.onDismiss});
   final _TransferJob job;
+  final VoidCallback? onDismiss;
   @override
   Widget build(BuildContext context) {
     final c = context.weeberColors;
     final pct = job.total > 0 ? (job.done / job.total).clamp(0.0, 1.0) : (job.status == _JobStatus.done ? 1.0 : 0.0);
-    return Container(
+    return InkWell(
+      onTap: onDismiss,
+      child: Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -365,7 +379,9 @@ class _ProgressTile extends StatelessWidget {
             ),
           ),
         ])),
+        if (onDismiss != null) const Icon(Icons.close, size: 16, color: Colors.grey),
       ]),
+    ),
     );
   }
 }

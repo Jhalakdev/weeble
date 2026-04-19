@@ -32,11 +32,24 @@ const app = Fastify({
   bodyLimit: 64 * 1024,
 });
 
+// Accept binary uploads. Without this, Fastify defaults to JSON-only and
+// rejects every application/octet-stream POST with 415 immediately —
+// which is what was killing iPhone uploads at ~12% (the iPhone buffered
+// a chunk before the server slammed the connection shut).
+// The route-level bodyLimit on /v1/relay/upload (2 GB) overrides the
+// global 64 KB, so this only matters for that route.
+app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
+
 await app.register(helmet, { contentSecurityPolicy: false });
 await app.register(cors, { origin: true });
 await app.register(rateLimit, {
-  max: 60,
+  // The auth-protected relay endpoints get polled by every connected
+  // client (files + stats every ~3-4s). Skip rate-limit there — they're
+  // already gated by JWT + active subscription. Rate-limit still applies
+  // to /v1/auth/*, /v1/billing/*, etc.
+  max: 600,
   timeWindow: '1 minute',
+  skip: (req) => req.url?.startsWith('/v1/relay/') === true || req.url?.startsWith('/v1/tunnel/') === true,
 });
 await app.register(websocket, {
   options: { maxPayload: 16 * 1024 * 1024 }, // 16 MB per WS frame
