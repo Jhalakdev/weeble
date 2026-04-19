@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../api/client.dart';
 import '../../state/auth.dart';
+import '../../widgets/app_shell.dart';
 
 class DevicesScreen extends ConsumerStatefulWidget {
   const DevicesScreen({super.key});
@@ -98,49 +98,40 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              GoRouter.of(context).go('/drive');
-            }
-          },
-        ),
-        title: const Text('Connected devices'),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh)],
-      ),
-      body: _loading
+    return AppShell(
+      title: 'Devices',
+      activeRoute: '/devices',
+      child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(child: Text('Error: $_error'))
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _devices.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final d = _devices[i];
-                    final kind = d['kind'] as String;
-                    final platform = d['platform'] as String;
-                    return ListTile(
-                      leading: Icon(_iconFor(platform, kind)),
-                      title: Text(d['name'] as String),
-                      subtitle: Text('${kind == 'host' ? 'Server' : 'Client'} · $platform · last seen ${_agoString(d['last_seen_at'] as int)}'),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (v) {
-                          if (v == 'rename') _rename(d);
-                          if (v == 'revoke') _revoke(d);
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'rename', child: Text('Rename')),
-                          PopupMenuItem(value: 'revoke', child: Text('Sign out', style: TextStyle(color: Colors.red))),
-                        ],
-                      ),
-                    );
-                  },
+              : RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: _devices.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final d = _devices[i];
+                      final kind = d['kind'] as String;
+                      final platform = d['platform'] as String;
+                      return ListTile(
+                        leading: Icon(_iconFor(platform, kind)),
+                        title: Text(d['name'] as String),
+                        subtitle: Text('${kind == 'host' ? 'Server' : 'Client'} · $platform · last seen ${_agoString(d['last_seen_at'] as int)}'),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (v) {
+                            if (v == 'rename') _rename(d);
+                            if (v == 'revoke') _revoke(d);
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: 'rename', child: Text('Rename')),
+                            PopupMenuItem(value: 'revoke', child: Text('Sign out', style: TextStyle(color: Colors.red))),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
     );
   }

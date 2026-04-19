@@ -16,6 +16,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/byte_size.dart';
 import '../../widgets/delete_confirm_dialog.dart';
+import '../../widgets/file_preview.dart';
 import '../../widgets/share_dialog.dart';
 import '../../widgets/storage_line_chart.dart';
 import '../../widgets/upgrade_banner.dart';
@@ -364,12 +365,7 @@ class _FilesRow extends StatelessWidget {
           Expanded(
             flex: 5,
             child: Row(children: [
-              Container(
-                width: 32, height: 32,
-                decoration: BoxDecoration(color: AppTheme.accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
-                alignment: Alignment.center,
-                child: Icon(_iconFor(file.mime), size: 16, color: AppTheme.accent),
-              ),
+              FilePreview(mime: file.mime, name: file.name, size: 36),
               const SizedBox(width: 10),
               Expanded(child: Text(file.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: GoogleFonts.poppins(fontSize: 13, color: c.textPrimary))),
             ]),
@@ -381,15 +377,6 @@ class _FilesRow extends StatelessWidget {
         ]),
       ),
     );
-  }
-
-  IconData _iconFor(String mime) {
-    if (mime.startsWith('image/')) return Icons.image_outlined;
-    if (mime.startsWith('video/')) return Icons.movie_outlined;
-    if (mime.startsWith('audio/')) return Icons.audio_file_outlined;
-    if (mime == 'application/pdf') return Icons.picture_as_pdf_outlined;
-    if (mime.startsWith('text/')) return Icons.description_outlined;
-    return Icons.insert_drive_file_outlined;
   }
 
   static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

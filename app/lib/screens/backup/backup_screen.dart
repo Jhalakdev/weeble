@@ -1,10 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../backup/backup_service.dart';
 import '../../backup/drive_detector.dart';
 import '../../backup/passphrase.dart';
+import '../../widgets/app_shell.dart';
 import '../../widgets/byte_size.dart';
 
 class BackupScreen extends ConsumerStatefulWidget {
@@ -102,22 +102,10 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              GoRouter.of(context).go('/drive');
-            }
-          },
-        ),
-        title: const Text('Backup'),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _scanning ? null : _scan)],
-      ),
-      body: SingleChildScrollView(
+    return AppShell(
+      title: 'Backup',
+      activeRoute: '/backup',
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

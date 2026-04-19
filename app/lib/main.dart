@@ -5,6 +5,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
 import 'screens/backup/backup_screen.dart';
 import 'screens/license_blocked_screen.dart';
+import 'screens/main/account_screen.dart';
 import 'screens/main/client_drive_screen.dart';
 import 'screens/main/demoted_screen.dart';
 import 'screens/main/devices_screen.dart';
@@ -91,13 +92,20 @@ GoRouter _buildRouter(WidgetRef ref) {
       GoRoute(path: '/drive', builder: (_, _) {
         // Decide host vs client view based on the role we determined at
         // bootstrap (which asked the VPS who the active host is).
-        // - HostRole.active → DriveScreen (this Mac's local files)
-        // - everything else → ClientDriveScreen (browse the active host
-        //   over the relay tunnel — same UX as phones).
         final role = ref.read(hostRoleProvider).role;
         return role == HostRole.active ? const DriveScreen() : const ClientDriveScreen();
       }),
+      // Filtered views — same screens, with a filter sub-route.
+      // For now Recent/Favorites/Trash all render the standard drive
+      // screen; the host already filters by `deleted_at` in FileIndex
+      // (Trash needs the soft-deleted view), and Recent is sorted by
+      // created_at desc. Wired to make the sidebar items go somewhere
+      // real instead of bouncing back to /drive.
+      GoRoute(path: '/drive/recent', builder: (_, _) => const ClientDriveScreen()),
+      GoRoute(path: '/drive/favorites', builder: (_, _) => const ClientDriveScreen()),
+      GoRoute(path: '/drive/trash', builder: (_, _) => const ClientDriveScreen()),
       GoRoute(path: '/devices', builder: (_, _) => const DevicesScreen()),
+      GoRoute(path: '/account', builder: (_, _) => const AccountScreen()),
       GoRoute(path: '/pair/host', builder: (_, _) => const HostQrScreen()),
       GoRoute(path: '/pair', builder: (_, _) => const ScanQrScreen()),
       GoRoute(path: '/blocked', builder: (_, _) => const LicenseBlockedScreen()),

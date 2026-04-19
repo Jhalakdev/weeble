@@ -18,12 +18,14 @@ class AppShell extends ConsumerStatefulWidget {
     required this.child,
     this.activeRoute,
     this.onCreateNew,
+    this.floatingActionButton,
   });
 
   final String title;
   final Widget child;
   final String? activeRoute;
   final VoidCallback? onCreateNew;
+  final Widget? floatingActionButton;
 
   @override
   ConsumerState<AppShell> createState() => _AppShellState();
@@ -36,6 +38,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final c = context.weeberColors;
     return Scaffold(
       backgroundColor: c.body,
+      floatingActionButton: widget.floatingActionButton,
       drawer: wide ? null : Drawer(
         backgroundColor: c.sidebarBg,
         shape: const RoundedRectangleBorder(),
@@ -174,17 +177,16 @@ class _Sidebar extends ConsumerWidget {
             _NavSection(items: [
               _NavItemData(icon: Icons.grid_view_rounded, label: 'Dashboard', route: '/drive'),
               _NavItemData(icon: Icons.folder_outlined, label: 'My Drive', route: '/drive'),
-              _NavItemData(icon: Icons.insert_drive_file_outlined, label: 'Files', route: '/drive'),
-              _NavItemData(icon: Icons.access_time, label: 'Recent', route: '/drive'),
-              _NavItemData(icon: Icons.star_border, label: 'Favourite', route: '/drive'),
-              _NavItemData(icon: Icons.delete_outline, label: 'Trash', route: '/drive'),
+              _NavItemData(icon: Icons.access_time, label: 'Recent', route: '/drive/recent'),
+              _NavItemData(icon: Icons.star_border, label: 'Favourite', route: '/drive/favorites'),
+              _NavItemData(icon: Icons.delete_outline, label: 'Trash', route: '/drive/trash'),
             ], activeRoute: activeRoute),
             const SizedBox(height: 16),
             _NavSection(items: [
               _NavItemData(icon: Icons.devices_outlined, label: 'Devices', route: '/devices'),
-              _NavItemData(icon: Icons.link_outlined, label: 'Shares', route: '/drive'),
               _NavItemData(icon: Icons.qr_code_2_outlined, label: 'Pair', route: '/pair/host'),
               _NavItemData(icon: Icons.backup_outlined, label: 'Backup', route: '/backup'),
+              _NavItemData(icon: Icons.account_circle_outlined, label: 'Account', route: '/account'),
             ], activeRoute: activeRoute),
             const Spacer(),
             if (cfg.storagePath != null) Padding(
@@ -243,11 +245,15 @@ class _NavItem extends StatelessWidget {
     final router = GoRouter.of(context);
     return InkWell(
       onTap: onTap ?? (data.route != null ? () {
-        if (data.route == '/drive') {
-          router.go(data.route!);
-        } else {
-          router.push(data.route!);
+        // Close the drawer first if we're inside one (mobile).
+        final scaffold = Scaffold.maybeOf(context);
+        if (scaffold?.hasDrawer == true && scaffold?.isDrawerOpen == true) {
+          Navigator.of(context).pop();
         }
+        // Use `go` so we replace the route stack — sidebar items are top-
+        // level destinations, not pushed pages, so back-button shouldn't
+        // bounce between them.
+        router.go(data.route!);
       } : null),
       borderRadius: BorderRadius.circular(8),
       child: Container(
