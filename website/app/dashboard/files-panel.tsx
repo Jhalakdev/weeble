@@ -86,6 +86,8 @@ export function FilesPanel({
   const [downloads, setDownloads] = useState<DownloadJob[]>([]);
   const [renameTarget, setRenameTarget] = useState<FileItem | null>(null);
   const [infoTarget, setInfoTarget] = useState<FileItem | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<FileItem | null>(null);
+  const [showFabMenu, setShowFabMenu] = useState(false);
   const [typeFilter, setTypeFilter] = useState<TypeKind>('all');
   const [dateFilter, setDateFilter] = useState<DateRange>('all');
   const [dragOver, setDragOver] = useState(false);
@@ -525,6 +527,19 @@ export function FilesPanel({
                 className={`p-1.5 rounded-md transition ${view === 'grid' ? 'bg-[color:var(--surface)] text-[color:var(--accent)] shadow-sm' : 'text-[color:var(--text-muted)] hover:text-[color:var(--text)]'}`}
               ><LayoutGrid size={14} /></button>
             </div>
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as DateRange)}
+              className="h-9 px-3 text-[12px] bg-[color:var(--body)] rounded-lg border border-transparent focus:border-[color:var(--accent)] focus:outline-none cursor-pointer"
+              aria-label="Date range"
+              title="Date range"
+            >
+              <option value="all">Any date</option>
+              <option value="today">Today</option>
+              <option value="week">Past 7 days</option>
+              <option value="month">Past 30 days</option>
+              <option value="year">Past year</option>
+            </select>
             <button
               onClick={() => refresh()}
               disabled={busy}
@@ -537,10 +552,10 @@ export function FilesPanel({
             <button
               onClick={() => setShowNewFolder(true)}
               disabled={!online}
-              className="inline-flex items-center gap-1.5 bg-[color:var(--body)] hover:bg-[color:var(--accent-muted)] text-[color:var(--text)] text-xs font-semibold px-3 py-2 rounded-lg disabled:opacity-50"
+              className="hidden sm:inline-flex items-center gap-1.5 bg-[color:var(--body)] hover:bg-[color:var(--accent-muted)] text-[color:var(--text)] text-xs font-semibold px-3 py-2 rounded-lg disabled:opacity-50"
               title="New folder"
             >
-              <FolderPlus size={14} /> <span className="hidden sm:inline">New folder</span>
+              <FolderPlus size={14} /> New folder
             </button>
             <button
               onClick={() => inputRef.current?.click()}
@@ -559,33 +574,20 @@ export function FilesPanel({
           </div>
         </div>
 
-        {/* Filters: prominent YouTube-sized search bar + day selector,
-            then type chips. Search input here is local to this panel;
-            the top-bar global search also feeds in via ?q= URL param. */}
+        {/* Filters: full-width search bar (YouTube-sized on mobile),
+            then type chips. Date range + Refresh + New folder + Upload
+            live in the toolbar above. Search input also feeds in from
+            the top-bar global ?q= URL param so deep-linking works. */}
         <div className="mb-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search size={18} className="md:hidden absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
-              <Search size={14} className="hidden md:block absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
-              <input
-                value={localQuery || urlQuery}
-                onChange={(e) => setLocalQuery(e.target.value)}
-                placeholder="Search your files"
-                className="w-full h-12 md:h-9 pl-11 md:pl-9 pr-4 md:pr-3 text-[15px] md:text-[13px] bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none"
-              />
-            </div>
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value as DateRange)}
-              className="h-12 md:h-9 px-4 md:px-3 text-[13px] md:text-[12px] bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none cursor-pointer"
-              aria-label="Date range"
-            >
-              <option value="all">Any date</option>
-              <option value="today">Today</option>
-              <option value="week">Past 7 days</option>
-              <option value="month">Past 30 days</option>
-              <option value="year">Past year</option>
-            </select>
+          <div className="relative">
+            <Search size={18} className="md:hidden absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
+            <Search size={14} className="hidden md:block absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
+            <input
+              value={localQuery || urlQuery}
+              onChange={(e) => setLocalQuery(e.target.value)}
+              placeholder="Search your files"
+              className="w-full h-12 md:h-9 pl-11 md:pl-9 pr-4 md:pr-3 text-[15px] md:text-[13px] bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none"
+            />
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-1 scrollbar-thin">
             {([
@@ -631,7 +633,7 @@ export function FilesPanel({
                 onSelect={() => toggleSelect(f.id)}
                 onMenuToggle={() => setOpenMenu(openMenu === f.id ? null : f.id)}
                 onMenuClose={() => setOpenMenu(null)}
-                onOpen={() => isFolder(f) ? enterFolder(f) : downloadFile(f)}
+                onOpen={() => isFolder(f) ? enterFolder(f) : setPreviewTarget(f)}
                 onDownload={() => downloadFile(f)}
                 onDelete={() => setDeleteTarget(f)}
                 onFavorite={() => toggleFavorite(f.id)}
@@ -682,7 +684,7 @@ export function FilesPanel({
                     aria-label={`Select ${f.name}`}
                   />
                   <button
-                    onClick={() => folder ? enterFolder(f) : downloadFile(f)}
+                    onClick={() => folder ? enterFolder(f) : setPreviewTarget(f)}
                     className="flex-1 min-w-0 flex items-center gap-3 text-left"
                   >
                     {folder ? (
@@ -771,6 +773,13 @@ export function FilesPanel({
         {infoTarget && (
           <InfoModal file={infoTarget} onClose={() => setInfoTarget(null)} />
         )}
+        {previewTarget && (
+          <PreviewModal
+            file={previewTarget}
+            onClose={() => setPreviewTarget(null)}
+            onDownload={() => downloadFile(previewTarget)}
+          />
+        )}
         {showNewFolder && (
           <NewFolderModal busy={busy} onCancel={() => setShowNewFolder(false)} onCreate={createFolder} />
         )}
@@ -792,6 +801,12 @@ export function FilesPanel({
             onClear={clearSelection}
             onMove={() => setMovePicker({ ids: Array.from(selected) })}
             onDelete={() => bulkDelete(Array.from(selected))}
+            onDownload={() => {
+              // Trigger one download per selected file. Browser queues
+              // them with the user's per-host concurrency limits.
+              const targets = files.filter((f) => selected.has(f.id) && !isFolder(f));
+              targets.forEach((f) => downloadFile(f));
+            }}
           />
         )}
       </section>
@@ -804,16 +819,39 @@ export function FilesPanel({
         onClearDownload={(id) => setDownloads((d) => d.filter((x) => x.id !== id))}
       />
 
-      {/* Floating action button — visible on phone, where the inline button is hidden */}
+      {/* Floating action button — visible on phone where the inline
+          buttons are hidden. Lifted above MobileNav (~64 px) and z-50
+          so it sits ABOVE the bottom tabs (which are z-40). */}
       <button
-        onClick={() => inputRef.current?.click()}
+        onClick={() => setShowFabMenu((s) => !s)}
         disabled={!online}
-        className="sm:hidden fixed right-5 bottom-5 z-40 w-14 h-14 rounded-full text-white shadow-lg disabled:opacity-50 flex items-center justify-center"
-        style={{ background: 'linear-gradient(135deg, #8F93F6 0%, #6E74F2 100%)' }}
-        aria-label="Upload"
+        className="sm:hidden fixed right-5 bottom-20 z-50 w-14 h-14 rounded-full text-white shadow-lg disabled:opacity-50 flex items-center justify-center transition-transform"
+        style={{ background: 'linear-gradient(135deg, #8F93F6 0%, #6E74F2 100%)', transform: showFabMenu ? 'rotate(45deg)' : 'none' }}
+        aria-label={showFabMenu ? 'Close create menu' : 'Create new'}
       >
         <Plus size={26} />
       </button>
+
+      {/* FAB action sheet — Upload files / New folder. */}
+      {showFabMenu && (
+        <>
+          <div className="sm:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setShowFabMenu(false)} />
+          <div className="sm:hidden fixed right-5 bottom-40 z-50 flex flex-col gap-2 items-end">
+            <button
+              onClick={() => { setShowFabMenu(false); inputRef.current?.click(); }}
+              className="inline-flex items-center gap-2 bg-[color:var(--surface)] border border-[color:var(--border)] text-[color:var(--text)] text-[13px] font-medium px-4 py-2.5 rounded-full shadow-lg"
+            >
+              <Upload size={16} className="text-[color:var(--accent)]" /> Upload files
+            </button>
+            <button
+              onClick={() => { setShowFabMenu(false); setShowNewFolder(true); }}
+              className="inline-flex items-center gap-2 bg-[color:var(--surface)] border border-[color:var(--border)] text-[color:var(--text)] text-[13px] font-medium px-4 py-2.5 rounded-full shadow-lg"
+            >
+              <FolderPlus size={16} className="text-[color:var(--accent)]" /> New folder
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -1055,7 +1093,7 @@ function Breadcrumbs({ path, onHome, onJump }: { path: Crumb[]; onHome: () => vo
 }
 
 function BulkActionBar({
-  count, allCount, onSelectAll, onClear, onMove, onDelete,
+  count, allCount, onSelectAll, onClear, onMove, onDelete, onDownload,
 }: {
   count: number;
   allCount: number;
@@ -1063,24 +1101,30 @@ function BulkActionBar({
   onClear: () => void;
   onMove: () => void;
   onDelete: () => void;
+  onDownload: () => void;
 }) {
+  // Lifted above MobileNav (~64 px) on mobile so it doesn't disappear
+  // behind the bottom tabs. z-50 to clear MobileNav (z-40).
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-full shadow-xl px-4 py-2 flex items-center gap-2">
+    <div className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-50 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-full shadow-xl px-4 py-2 flex items-center gap-2 max-w-[95vw]">
       <button onClick={onClear} className="p-1.5 rounded-full text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--text)]" aria-label="Clear selection">
         <X size={14} />
       </button>
-      <span className="text-[12px] font-medium text-[color:var(--text)] mr-2">{count} selected</span>
+      <span className="text-[12px] font-medium text-[color:var(--text)] mr-1 whitespace-nowrap">{count} selected</span>
       {count < allCount && (
-        <button onClick={onSelectAll} className="text-[11px] text-[color:var(--accent)] font-medium hover:underline mr-1">
+        <button onClick={onSelectAll} className="hidden sm:inline text-[11px] text-[color:var(--accent)] font-medium hover:underline mr-1 whitespace-nowrap">
           Select all ({allCount})
         </button>
       )}
       <div className="w-px h-5 bg-[color:var(--border)] mx-1" />
-      <button onClick={onMove} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]">
-        <Move size={13} /> Move
+      <button onClick={onDownload} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]" title="Download selected">
+        <Download size={13} /> <span className="hidden sm:inline">Download</span>
       </button>
-      <button onClick={onDelete} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-red-50 text-red-600">
-        <Trash2 size={13} /> Delete
+      <button onClick={onMove} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]" title="Move selected">
+        <Move size={13} /> <span className="hidden sm:inline">Move</span>
+      </button>
+      <button onClick={onDelete} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-red-50 text-red-600" title="Delete selected">
+        <Trash2 size={13} /> <span className="hidden sm:inline">Delete</span>
       </button>
     </div>
   );
@@ -1208,6 +1252,88 @@ function RenameModal({ file, busy, onCancel, onSave }: { file: FileItem; busy: b
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} disabled={busy} className="px-4 py-2 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]">Cancel</button>
           <button onClick={() => onSave(name)} disabled={busy || !name.trim() || name === file.name} className="px-4 py-2 text-[12px] font-semibold bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] disabled:opacity-50 text-white rounded-lg">Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewModal({ file, onClose, onDownload }: { file: FileItem; onClose: () => void; onDownload: () => void }) {
+  const url = `/api/files/${encodeURIComponent(file.id)}`;
+  const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+  const isImage = file.mime.startsWith('image/');
+  const isVideo = file.mime.startsWith('video/');
+  const isAudio = file.mime.startsWith('audio/');
+  const isPdf = file.mime === 'application/pdf';
+  const isText = file.mime.startsWith('text/') || ['md','json','yaml','yml','csv','log','txt'].includes(ext);
+
+  // Text files: fetch and show as <pre>. Images/PDF/video/audio: stream
+  // directly via /api/files/:id (browser handles content-type).
+  const [text, setText] = useState<string | null>(null);
+  const [textErr, setTextErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isText) return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`${r.status}`);
+        const t = await r.text();
+        if (alive) setText(t);
+      } catch (e) {
+        if (alive) setTextErr(String(e));
+      }
+    })();
+    return () => { alive = false; };
+  }, [isText, url]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-6" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="w-full max-w-5xl h-full max-h-[92vh] rounded-xl bg-[color:var(--surface)] border border-[color:var(--border)] shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--border)]">
+          <div className="flex items-center gap-3 min-w-0">
+            <FilePreview mime={file.mime} name={file.name} />
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold truncate">{file.name}</div>
+              <div className="text-[11px] text-[color:var(--text-muted)]">{formatBytes(file.size)} · {fmtFullDate(file.created_at)}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={onDownload} className="inline-flex items-center gap-1.5 bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] text-white text-[12px] font-semibold px-3 py-2 rounded-lg">
+              <Download size={14} /> <span className="hidden sm:inline">Download</span>
+            </button>
+            <button onClick={onClose} className="text-[color:var(--text-muted)] hover:text-[color:var(--text)] p-2" aria-label="Close"><X size={18} /></button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 bg-[color:var(--body)] flex items-center justify-center overflow-auto">
+          {isImage ? (
+            <img src={url} alt={file.name} className="max-w-full max-h-full object-contain" />
+          ) : isVideo ? (
+            <video src={url} controls className="max-w-full max-h-full" />
+          ) : isAudio ? (
+            <div className="p-6 w-full max-w-md">
+              <audio src={url} controls className="w-full" />
+            </div>
+          ) : isPdf ? (
+            <iframe src={url} className="w-full h-full bg-white" title={file.name} />
+          ) : isText ? (
+            text == null && !textErr ? (
+              <div className="text-[12px] text-[color:var(--text-muted)] py-12">Loading…</div>
+            ) : textErr ? (
+              <div className="text-[12px] text-red-600 py-12">Could not load: {textErr}</div>
+            ) : (
+              <pre className="w-full h-full p-4 text-[12px] font-mono whitespace-pre-wrap overflow-auto text-[color:var(--text)]">{text}</pre>
+            )
+          ) : (
+            <div className="text-center p-8">
+              <File size={48} className="mx-auto mb-3 text-[color:var(--text-muted)]" />
+              <div className="text-[13px] font-semibold mb-1">No preview available</div>
+              <div className="text-[11px] text-[color:var(--text-muted)] mb-4">This file type can&rsquo;t be previewed in the browser.</div>
+              <button onClick={onDownload} className="inline-flex items-center gap-1.5 bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] text-white text-[12px] font-semibold px-4 py-2 rounded-lg">
+                <Download size={14} /> Download
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
