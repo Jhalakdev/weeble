@@ -580,15 +580,16 @@ export function FilesPanel({
             the top-bar global ?q= URL param so deep-linking works. */}
         <div className="mb-3 space-y-2">
           <div className="relative group">
-            {/* Subtle glow on focus — premium feel without being loud. */}
-            <div className="md:hidden absolute -inset-0.5 rounded-full bg-[color:var(--accent)]/0 group-focus-within:bg-[color:var(--accent)]/20 blur-md transition-all duration-300 pointer-events-none" />
-            <Search size={18} className="md:hidden absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)] group-focus-within:text-[color:var(--accent)] transition-colors z-10" />
+            {/* Always-on accent glow so the search bar reads as the
+                hero control. Intensifies on focus. */}
+            <div className="md:hidden absolute -inset-0.5 rounded-full bg-gradient-to-r from-[color:var(--accent)]/40 to-[#B1A7F9]/40 blur-md group-focus-within:from-[color:var(--accent)]/70 group-focus-within:to-[#B1A7F9]/70 transition-all duration-300 pointer-events-none" />
+            <Search size={18} className="md:hidden absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--accent)] z-10" strokeWidth={2.4} />
             <Search size={14} className="hidden md:block absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
             <input
               value={localQuery || urlQuery}
               onChange={(e) => setLocalQuery(e.target.value)}
               placeholder="Search your files"
-              className="relative w-full h-12 md:h-9 pl-11 md:pl-9 pr-12 md:pr-3 text-[15px] md:text-[13px] bg-[color:var(--surface)] md:bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none shadow-sm md:shadow-none transition-all"
+              className="relative w-full h-12 md:h-9 pl-11 md:pl-9 pr-12 md:pr-3 text-[15px] md:text-[13px] font-medium md:font-normal bg-[color:var(--surface)] md:bg-[color:var(--body)] rounded-full md:rounded-lg border-2 md:border border-[color:var(--accent)]/60 md:border-transparent focus:border-[color:var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color:var(--accent)]/20 md:focus:ring-0 shadow-md md:shadow-none transition-all"
             />
             {(localQuery || urlQuery) && (
               <button
