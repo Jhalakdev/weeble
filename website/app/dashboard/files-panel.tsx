@@ -578,7 +578,7 @@ export function FilesPanel({
             then type chips. Date range + Refresh + New folder + Upload
             live in the toolbar above. Search input also feeds in from
             the top-bar global ?q= URL param so deep-linking works. */}
-        <div className="mb-3 space-y-2">
+        <div className="mb-3 space-y-4 md:space-y-2">
           <div className="relative group">
             {/* Always-on accent glow so the search bar reads as the
                 hero control. Intensifies on focus. */}
