@@ -30,8 +30,15 @@ export function StorageDonut({
         if (alive && body.stats) setStats(body.stats);
       } catch { /* offline — keep last */ }
     }
-    const id = setInterval(tick, 8000);
-    return () => { alive = false; clearInterval(id); };
+    let id: ReturnType<typeof setInterval> | null = null;
+    function start() { stop(); id = setInterval(tick, 8000); }
+    function stop() { if (id) { clearInterval(id); id = null; } }
+    function onVis() {
+      if (document.visibilityState === 'visible') { tick(); start(); } else { stop(); }
+    }
+    if (document.visibilityState === 'visible') start();
+    document.addEventListener('visibilitychange', onVis);
+    return () => { alive = false; stop(); document.removeEventListener('visibilitychange', onVis); };
   }, []);
 
   const used = stats.used_bytes;

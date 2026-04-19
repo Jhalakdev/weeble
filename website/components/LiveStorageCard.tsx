@@ -30,8 +30,15 @@ export function LiveStorageCard({ variant = 'sidebar' }: { variant?: 'sidebar' |
       } catch { /* offline / network — leave null */ }
     }
     load();
-    const id = setInterval(load, 6000);
-    return () => { alive = false; clearInterval(id); };
+    let id: ReturnType<typeof setInterval> | null = null;
+    function start() { stop(); id = setInterval(load, 6000); }
+    function stop() { if (id) { clearInterval(id); id = null; } }
+    function onVis() {
+      if (document.visibilityState === 'visible') { load(); start(); } else { stop(); }
+    }
+    if (document.visibilityState === 'visible') start();
+    document.addEventListener('visibilitychange', onVis);
+    return () => { alive = false; stop(); document.removeEventListener('visibilitychange', onVis); };
   }, []);
 
   const used = stats?.used_bytes ?? 0;

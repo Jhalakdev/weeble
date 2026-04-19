@@ -151,11 +151,25 @@ export function FilesPanel({
     }
   }, [currentFolder]);
 
-  // Refetch on folder change + auto-poll inside the current folder.
+  // Refetch on folder change + auto-poll while the tab is VISIBLE only.
+  // Pausing on hidden tabs cuts background traffic ~80% — important once
+  // there are thousands of users (this is a client-side poll; every
+  // browser tab is one ongoing stream of requests against the relay).
   useEffect(() => {
     refresh(true);
-    const id = setInterval(() => refresh(true), POLL_MS);
-    return () => clearInterval(id);
+    let id: ReturnType<typeof setInterval> | null = null;
+    function start() {
+      stop();
+      id = setInterval(() => refresh(true), POLL_MS);
+    }
+    function stop() { if (id) { clearInterval(id); id = null; } }
+    function onVis() {
+      if (document.visibilityState === 'visible') { refresh(true); start(); }
+      else { stop(); }
+    }
+    if (document.visibilityState === 'visible') start();
+    document.addEventListener('visibilitychange', onVis);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
   }, [refresh]);
 
   // Clear selection when changing folders.
