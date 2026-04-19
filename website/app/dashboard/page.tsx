@@ -123,10 +123,14 @@ function formatBytes(b: number) {
 }
 
 function WelcomeHero({ plan, trialDaysRemaining, hasHost }: { plan: string; trialDaysRemaining: number; hasHost: boolean }) {
+  // Trial copy only when actually in trial AND days remaining > 0.
+  // Paid plans (monthly / yearly / lifetime / etc.) and expired trials
+  // both fall through to the generic message.
+  const inTrial = plan === 'trial' && trialDaysRemaining > 0;
   let msg: string;
   if (!hasHost) {
     msg = "You haven't set up your storage yet. Install the Weeber app on your computer — it becomes your cloud.";
-  } else if (plan === 'trial') {
+  } else if (inTrial) {
     msg = `Your storage is online. You have ${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} left in your free trial.`;
   } else {
     msg = 'Your storage is online. Upload files here or from the app.';
