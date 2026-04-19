@@ -22,3 +22,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (cd) headers.set('content-disposition', cd);
   return new NextResponse(upstream.body, { headers });
 }
+
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const token = await getSessionToken();
+  if (!token) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const { id } = await params;
+  const upstream = await fetch(`${API_URL}/v1/relay/files/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await upstream.text();
+  return new NextResponse(body, {
+    status: upstream.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}

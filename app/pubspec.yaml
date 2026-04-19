@@ -50,6 +50,10 @@ dependencies:
   xml: ^6.5.0
   crypto: ^3.0.5
 
+  # WebSocket tunnel to the VPS (lets the user's PC be reachable from
+  # phones / browser without any router configuration)
+  web_socket_channel: ^3.0.1
+
   # Security: device fingerprint + JWT verification
   device_info_plus: ^11.2.0
   dart_jsonwebtoken: ^2.14.2

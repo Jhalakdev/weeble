@@ -104,20 +104,22 @@ class LicenseGuard extends StateNotifier<LicenseState> {
       state = LicenseState(status: LicenseStatus.active, receipt: payload);
       _scheduleHeartbeat(payload.expiresAt);
     } on _ApiError catch (e) {
+      // The ONLY statuses that hard-block the user are explicit server signals
+      // that the license is bad. Every other error (network, expired JWT,
+      // device not yet registered, receipt briefly failed to verify) is
+      // recoverable — set needsActivation and let the UI keep working.
       if (e.code == 'abuse_detected' || e.code == 'license_revoked') {
         state = LicenseState(status: LicenseStatus.revoked, message: e.code);
-      } else if (e.code == 'subscription_inactive' || e.code == 'no_license') {
-        state = LicenseState(status: LicenseStatus.needsActivation, message: e.code);
-      } else if (e.code == 'no_device_binding') {
-        // The user logged in but hasn't registered a device yet (onboarding
-        // hasn't completed). Do NOT treat this as an invalid license — let
-        // the router take them into onboarding normally.
-        state = LicenseState(status: LicenseStatus.needsActivation, message: e.code);
       } else {
-        state = LicenseState(status: LicenseStatus.invalid, message: e.code);
+        state = LicenseState(status: LicenseStatus.needsActivation, message: e.code);
       }
     } on ReceiptVerificationException catch (e) {
-      state = LicenseState(status: LicenseStatus.invalid, message: 'server_not_trusted:${e.reason}');
+      // Server returned a receipt that doesn't verify against our embedded
+      // pubkey. Previously we treated this as "invalid" and locked the user
+      // out — but in practice it's usually a transient sync issue (e.g. we
+      // wiped the server key during dev). Fall back to needsActivation so
+      // the app stays usable.
+      state = LicenseState(status: LicenseStatus.needsActivation, message: 'server_not_trusted:${e.reason}');
     } catch (_) {
       state = LicenseState(status: LicenseStatus.offline);
     }

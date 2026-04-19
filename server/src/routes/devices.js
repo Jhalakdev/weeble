@@ -21,20 +21,36 @@ export default async function deviceRoutes(app) {
   }, async (req) => {
     const db = getDb();
     const now = Math.floor(Date.now() / 1000);
-    const id = ulid();
-    db.prepare(`
-      INSERT INTO devices (id, account_id, kind, name, platform, pubkey, created_at, last_seen_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, req.auth.accountId, req.body.kind, req.body.name, req.body.platform, req.body.pubkey, now, now);
 
-    // Re-issue the JWT bound to this device.
+    // IDEMPOTENT on (account_id, pubkey, kind): reuse an existing active
+    // device row instead of creating a duplicate on every login. Without
+    // this, every logout→login creates a ghost row on the VPS.
+    const existing = db.prepare(`
+      SELECT id FROM devices
+      WHERE account_id = ? AND pubkey = ? AND kind = ? AND revoked_at IS NULL
+      LIMIT 1
+    `).get(req.auth.accountId, req.body.pubkey, req.body.kind);
+
+    let id;
+    if (existing) {
+      id = existing.id;
+      db.prepare('UPDATE devices SET name = ?, last_seen_at = ? WHERE id = ?')
+        .run(req.body.name, now, id);
+    } else {
+      id = ulid();
+      db.prepare(`
+        INSERT INTO devices (id, account_id, kind, name, platform, pubkey, created_at, last_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, req.auth.accountId, req.body.kind, req.body.name, req.body.platform, req.body.pubkey, now, now);
+    }
+
     const account = db.prepare('SELECT plan FROM accounts WHERE id = ?').get(req.auth.accountId);
     const token = await signAccessToken({
       accountId: req.auth.accountId,
       deviceId: id,
       plan: account.plan,
     });
-    return { device_id: id, token };
+    return { device_id: id, token, existing: !!existing };
   });
 
   // List devices on the account.

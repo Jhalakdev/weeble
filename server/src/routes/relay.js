@@ -1,27 +1,92 @@
-// VPS relay for browser-side uploads/downloads. The browser can't directly
-// connect to a self-signed host cert — Chrome refuses even with cert pinning
-// (browsers don't expose pinning APIs). So we relay: browser → VPS → host.
-// This costs VPS bandwidth but it's the only way to support "upload from
-// website" in v1. Mobile apps upload DIRECTLY to the host (host_client.dart).
+// VPS relay for browser-side uploads/downloads.
+//
+// All requests now flow through the persistent WebSocket tunnel that the
+// host's Flutter app maintains (see lib/tunnel_hub.js + routes/tunnel.js).
+// This means: the user's home router needs ZERO configuration. No port
+// forwarding, no UPnP, no Cloudflare account, no extra binary on the user's
+// machine. The Mac just opens an outbound connection to our VPS and serves
+// requests over it.
+//
+// Bandwidth flows through us, but that's the only acceptable trade for a
+// "next-next-install-login" experience for non-technical users.
 
-import https from 'node:https';
-import crypto from 'node:crypto';
-import { getDb } from '../db/index.js';
-import { urlSafeToken } from '../lib/ids.js';
+import { Buffer } from 'node:buffer';
+import { Readable } from 'node:stream';
+import { tunnelHub } from '../lib/tunnel_hub.js';
 import { audit, ipOf } from '../lib/audit.js';
 
 const UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
 export default async function relayRoutes(app) {
-  // Website calls this to upload a file from the browser to the user's host.
-  // Body: raw file bytes. Required query: name + mime.
+  // List files on the user's host.
+  app.get('/v1/relay/files', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({ method: 'GET', path: '/files' });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', res.headers['content-type'] || 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      req.log.error({ err: e }, 'tunnel list failed');
+      return reply.code(502).send({ error: 'list_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Download a file from the host.
+  app.get('/v1/relay/files/:id', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({ method: 'GET', path: `/files/${encodeURIComponent(req.params.id)}` });
+      reply.code(res.status);
+      for (const k of ['content-type', 'content-length', 'content-disposition']) {
+        if (res.headers[k]) reply.header(k, res.headers[k]);
+      }
+      return reply.send(Readable.from(res.bodyStream));
+    } catch (e) {
+      req.log.error({ err: e }, 'tunnel download failed');
+      if (!reply.sent) return reply.code(502).send({ error: 'download_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Delete a file on the host. Soft-delete (host marks deleted_at; the
+  // bytes can be reaped later). Same auth surface as list/download.
+  app.delete('/v1/relay/files/:id', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.delete.start', detail: { id: req.params.id } });
+    try {
+      const res = await conn.request({
+        method: 'DELETE',
+        path: `/files/${encodeURIComponent(req.params.id)}`,
+      });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', res.headers['content-type'] || 'application/json');
+      audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.delete.ok', detail: { id: req.params.id, status: res.status } });
+      return reply.send(body);
+    } catch (e) {
+      req.log.error({ err: e }, 'tunnel delete failed');
+      audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.delete.fail', detail: { id: req.params.id, err: String(e.message || e) } });
+      return reply.code(502).send({ error: 'delete_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Upload a file to the host.
   app.post('/v1/relay/upload', {
     preHandler: [app.requireAuth, app.requireActiveSubscription],
     bodyLimit: UPLOAD_MAX_BYTES,
     schema: {
       querystring: {
-        type: 'object',
-        required: ['name', 'mime'],
+        type: 'object', required: ['name', 'mime'],
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 400 },
           mime: { type: 'string', maxLength: 100 },
@@ -30,85 +95,40 @@ export default async function relayRoutes(app) {
     },
   }, async (req, reply) => {
     if (!req.auth.deviceId) return reply.code(400).send({ error: 'no_device_binding' });
-    const db = getDb();
-    const now = Math.floor(Date.now() / 1000);
-
-    // Find this account's active host.
-    const account = db.prepare('SELECT active_host_device_id FROM accounts WHERE id = ?').get(req.auth.accountId);
-    if (!account.active_host_device_id) return reply.code(404).send({ error: 'no_active_host' });
-
-    const endpoint = db.prepare('SELECT * FROM host_endpoints WHERE device_id = ?').get(account.active_host_device_id);
-    if (!endpoint || now - endpoint.updated_at > 7200) {
-      return reply.code(503).send({ error: 'host_offline' });
-    }
-
-    // Issue a short-lived session token the host will accept. Insert directly
-    // so we don't need to route through /v1/sessions/issue from the VPS itself.
-    const sessionToken = urlSafeToken(32);
-    db.prepare(`
-      INSERT INTO session_tokens (token, account_id, client_device_id, host_device_id, issued_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(sessionToken, req.auth.accountId, account.active_host_device_id, account.active_host_device_id, now, now + 300);
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
 
     audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.upload.start', detail: { name: req.query.name } });
 
     try {
-      const result = await streamToHost({
-        endpoint,
-        sessionToken,
-        fileName: req.query.name,
-        mime: req.query.mime,
-        rawRequest: req.raw,
-        contentLength: parseInt(req.headers['content-length'] || '0', 10),
+      const body = req.body;
+      const bodyBuf = Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body) || '');
+      const res = await conn.request({
+        method: 'POST',
+        path: '/files',
+        headers: {
+          'x-file-name': encodeURIComponent(req.query.name),
+          'x-file-mime': req.query.mime,
+          'content-type': 'application/octet-stream',
+        },
+        body: bodyBuf,
+        timeoutMs: 5 * 60 * 1000,
       });
-      audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.upload.ok', detail: { name: req.query.name, size: result.size } });
-      return result;
+      const respBody = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', res.headers['content-type'] || 'application/json');
+      audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.upload.ok', detail: { name: req.query.name, size: bodyBuf.length } });
+      return reply.send(respBody);
     } catch (e) {
-      req.log.error({ err: e }, 'relay upload failed');
-      audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.upload.fail', detail: { name: req.query.name, err: String(e.message || e) } });
-      return reply.code(502).send({ error: 'upload_relay_failed', detail: String(e.message || e) });
+      req.log.error({ err: e }, 'tunnel upload failed');
+      audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.upload.fail', detail: { err: String(e.message || e) } });
+      return reply.code(502).send({ error: 'upload_failed', detail: String(e.message || e) });
     }
   });
 }
 
-async function streamToHost({ endpoint, sessionToken, fileName, mime, rawRequest, contentLength }) {
-  return new Promise((resolve, reject) => {
-    const expected = endpoint.cert_fingerprint.replace('sha256:', '').toLowerCase();
-    const req = https.request({
-      host: endpoint.public_ip,
-      port: endpoint.port,
-      method: 'POST',
-      path: '/files',
-      headers: {
-        'x-weeber-session': sessionToken,
-        'x-file-name': encodeURIComponent(fileName),
-        'x-file-mime': mime,
-        'content-type': 'application/octet-stream',
-        'content-length': contentLength,
-      },
-      rejectUnauthorized: false,
-      checkServerIdentity: () => undefined,
-    }, (hostRes) => {
-      const sock = hostRes.socket;
-      const cert = sock?.getPeerCertificate?.(true);
-      if (cert && cert.raw) {
-        const actual = crypto.createHash('sha256').update(cert.raw).digest('hex');
-        if (actual !== expected) {
-          hostRes.destroy();
-          return reject(new Error('cert_pin_mismatch'));
-        }
-      }
-      let body = '';
-      hostRes.on('data', (c) => body += c);
-      hostRes.on('end', () => {
-        if (hostRes.statusCode >= 400) return reject(new Error(`host_status_${hostRes.statusCode}`));
-        try { resolve(JSON.parse(body)); }
-        catch { resolve({ raw: body, statusCode: hostRes.statusCode }); }
-      });
-      hostRes.on('error', reject);
-    });
-    req.setTimeout(300000, () => req.destroy(new Error('host_timeout')));
-    req.on('error', reject);
-    rawRequest.pipe(req);
-  });
+async function readAll(asyncIter) {
+  const chunks = [];
+  for await (const c of asyncIter) chunks.push(c);
+  return Buffer.concat(chunks);
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../services/host_lifecycle.dart';
 import '../../state/host_role.dart';
 
 /// Shown to a host machine that has been replaced by another. The user can
@@ -23,31 +24,38 @@ class DemotedScreen extends ConsumerWidget {
               children: [
                 Icon(Icons.swap_horiz, size: 56, color: Colors.amber.shade800),
                 const SizedBox(height: 16),
-                const Text('Another machine is your server now',
+                const Text('Your account is hosted on another computer',
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 Text(
-                  "You can only have one Weeber server at a time. Another device on your account just took over. Your phones will now talk to that machine.",
+                  "Just like WhatsApp, only one computer can host your files at a time. "
+                  "While this Mac was offline, you set up Weeber on another computer — that's now the host.\n\n"
+                  "If you switch back, files added on the OTHER computer won't appear here automatically — they live on that machine.",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade700, height: 1.5),
                 ),
                 const SizedBox(height: 28),
                 FilledButton.icon(
                   onPressed: () async {
-                    // The user wants this machine to be the server again.
-                    // Real take-over needs the current public_ip/port/cert,
-                    // which the host server module knows. For now, we route to
-                    // a flow that re-runs the host startup with takeOver=true.
-                    await _takeOver(ref);
+                    // User wants this machine to host again. Run the full
+                    // host lifecycle with forceTakeOver=true; the other
+                    // machine will get demoted on its next heartbeat.
+                    await ref.read(hostLifecycleProvider).ensureRunning(forceTakeOver: true);
                     if (context.mounted) context.go('/drive');
                   },
                   icon: const Icon(Icons.dns_outlined),
-                  label: const Text('Take it back — make this my server'),
+                  label: const Text('Switch back to this Mac'),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
-                  onPressed: () => context.go('/drive'),
-                  child: const Text('Use as a client only'),
+                  onPressed: () {
+                    // Stay as a client. Mark role notHost so the router
+                    // sends us to the client drive screen instead of
+                    // bouncing back here.
+                    ref.read(hostRoleProvider.notifier).setClientOnly();
+                    context.go('/drive');
+                  },
+                  child: const Text('Stay as a client on this Mac'),
                 ),
               ],
             ),
@@ -57,16 +65,4 @@ class DemotedScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _takeOver(WidgetRef ref) async {
-    // TODO: wire to the actual host_server lifecycle once it's started by main.
-    // For now we just toggle the role state optimistically — the next heartbeat
-    // will reconcile against the server.
-    await ref.read(hostRoleProvider.notifier).announce(
-          publicIp: '0.0.0.0',
-          port: 0,
-          reachability: 'unknown',
-          certFingerprint: '',
-          takeOver: true,
-        );
-  }
 }

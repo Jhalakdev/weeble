@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import websocket from '@fastify/websocket';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -16,6 +17,7 @@ import licenseRoutes from './routes/licenses.js';
 import backupRoutes from './routes/backup.js';
 import shareRoutes from './routes/shares.js';
 import relayRoutes from './routes/relay.js';
+import tunnelRoutes from './routes/tunnel.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -26,17 +28,18 @@ openDb(DB_PATH);
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'info' },
-  trustProxy: true, // we run behind Caddy
-  // Default small body limit for JSON APIs. Relay uploads override this per-route.
+  trustProxy: true,
   bodyLimit: 64 * 1024,
 });
 
-await app.register(helmet);
+await app.register(helmet, { contentSecurityPolicy: false });
 await app.register(cors, { origin: true });
 await app.register(rateLimit, {
   max: 60,
   timeWindow: '1 minute',
-  // Per-IP. Adjust per route as needed.
+});
+await app.register(websocket, {
+  options: { maxPayload: 16 * 1024 * 1024 }, // 16 MB per WS frame
 });
 
 app.decorate('requireAuth', requireAuth);
@@ -53,6 +56,7 @@ await app.register(licenseRoutes);
 await app.register(backupRoutes);
 await app.register(shareRoutes);
 await app.register(relayRoutes);
+await app.register(tunnelRoutes);
 
 app.listen({ port: PORT, host: HOST }).then(() => {
   app.log.info(`weeber-server listening on ${HOST}:${PORT}`);

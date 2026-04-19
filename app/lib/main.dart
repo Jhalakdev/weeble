@@ -50,15 +50,13 @@ class _WeeberAppState extends ConsumerState<WeeberApp> {
     await ref.read(appConfigProvider.notifier).load();
     await ref.read(authProvider.notifier).bootstrap();
     await ref.read(licenseGuardProvider.notifier).bootstrap();
-    // Boot the host file server + IP-announce loop on desktop. No-op on
-    // mobile and on machines that haven't completed onboarding.
-    final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
-    if (isDesktop) {
-      // Don't await — host startup involves UPnP discovery (~5s) and shouldn't
-      // block the UI from appearing.
-      // ignore: unawaited_futures
-      ref.read(hostLifecycleProvider).ensureRunning();
-    }
+
+    // Single-host (WhatsApp model) decision: ask the VPS who the active
+    // host is for this account, then either resume hosting, claim host,
+    // or run as client. See HostLifecycle.decideRoleAndStart for details.
+    // Mobile devices skip this — they're always clients.
+    // ignore: unawaited_futures
+    ref.read(hostLifecycleProvider).decideRoleAndStart();
     if (mounted) setState(() => _bootstrapped = true);
   }
 
@@ -92,11 +90,13 @@ GoRouter _buildRouter(WidgetRef ref) {
       GoRoute(path: '/onboarding/storage', builder: (_, _) => const StorageScreen()),
       GoRoute(path: '/onboarding/encryption', builder: (_, _) => const EncryptionScreen()),
       GoRoute(path: '/drive', builder: (_, _) {
-        // Desktop machines that ARE the host show the host drive screen
-        // (their local files). Mobile + demoted desktops show the client
-        // drive screen (browse the active host's files via HTTPS).
-        final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
-        return isDesktop ? const DriveScreen() : const ClientDriveScreen();
+        // Decide host vs client view based on the role we determined at
+        // bootstrap (which asked the VPS who the active host is).
+        // - HostRole.active → DriveScreen (this Mac's local files)
+        // - everything else → ClientDriveScreen (browse the active host
+        //   over the relay tunnel — same UX as phones).
+        final role = ref.read(hostRoleProvider).role;
+        return role == HostRole.active ? const DriveScreen() : const ClientDriveScreen();
       }),
       GoRoute(path: '/devices', builder: (_, _) => const DevicesScreen()),
       GoRoute(path: '/pair/host', builder: (_, _) => const HostQrScreen()),
@@ -112,8 +112,11 @@ GoRouter _buildRouter(WidgetRef ref) {
       final hostRole = ref.read(hostRoleProvider);
       final loc = state.matchedLocation;
 
-      // Hard kill — license revoked or fundamentally invalid → blocked screen.
-      if (license.status == LicenseStatus.revoked || license.status == LicenseStatus.invalid) {
+      // Hard kill ONLY on explicit server-side revoke/abuse. An "invalid"
+      // status just means the local receipt failed to verify — the app
+      // should still be usable; the license guard will re-activate in the
+      // background.
+      if (license.status == LicenseStatus.revoked) {
         return loc == '/blocked' ? null : '/blocked';
       }
 

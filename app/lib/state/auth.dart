@@ -48,6 +48,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await _storage.write(key: _kTokenKey, value: r.token);
     await _storage.write(key: _kAccountIdKey, value: r.accountId);
     state = AuthState(token: r.token, accountId: r.accountId, plan: r.plan, status: r.status);
+    // Note: this token is account-bound, not device-bound. The host lifecycle
+    // will re-call registerDevice() (idempotent) which returns a device-bound
+    // JWT that gets swapped in via replaceToken().
   }
 
   Future<void> register(String email, String password) async {

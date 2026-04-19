@@ -7,7 +7,9 @@ import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import '../../api/client.dart';
 import '../../services/host_client.dart';
+import '../../services/host_lifecycle.dart';
 import '../../state/auth.dart';
+import '../../state/host_role.dart';
 import '../../widgets/byte_size.dart';
 
 /// Phone / client-side drive screen. Looks up the account's active host on
@@ -126,29 +128,66 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? _OfflineState(error: _error!, onRetry: _refresh)
-              : _files.isEmpty
-                  ? const _EmptyState()
-                  : ListView.separated(
-                      itemCount: _files.length,
-                      separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
-                      itemBuilder: (_, i) {
-                        final f = _files[i];
-                        return ListTile(
-                          leading: Icon(_iconFor(f['mime'] as String? ?? '')),
-                          title: Text(f['name'] as String),
-                          subtitle: Text('${formatBytes(f['size'] as int? ?? 0)}'),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.download_outlined),
-                            onPressed: () => _download(f),
+      body: Column(
+        children: [
+          // On desktop, this screen means another machine is the active
+          // host. Offer an explicit "switch host to this Mac" affordance.
+          if (!Platform.isAndroid && !Platform.isIOS)
+            _ClientDesktopBanner(
+              onTakeOver: () async {
+                final ok = await _confirmTakeOver(context);
+                if (!ok) return;
+                await ref.read(hostLifecycleProvider).ensureRunning(forceTakeOver: true);
+                if (!mounted) return;
+                ref.read(hostRoleProvider.notifier).setActive();
+                if (context.mounted) context.go('/drive');
+              },
+            ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? _OfflineState(error: _error!, onRetry: _refresh)
+                    : _files.isEmpty
+                        ? const _EmptyState()
+                        : ListView.separated(
+                            itemCount: _files.length,
+                            separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
+                            itemBuilder: (_, i) {
+                              final f = _files[i];
+                              return ListTile(
+                                leading: Icon(_iconFor(f['mime'] as String? ?? '')),
+                                title: Text(f['name'] as String),
+                                subtitle: Text('${formatBytes(f['size'] as int? ?? 0)}'),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.download_outlined),
+                                  onPressed: () => _download(f),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
+          ),
+        ],
+      ),
     );
+  }
+
+  Future<bool> _confirmTakeOver(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Switch host to this Mac?'),
+        content: const Text(
+          'Files added on the other computer will stay on that computer — '
+          'they won\'t move to this Mac automatically. Only one host at a time.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Yes, switch')),
+        ],
+      ),
+    );
+    return result == true;
   }
 
   IconData _iconFor(String mime) {
@@ -179,6 +218,32 @@ class _OfflineState extends StatelessWidget {
             FilledButton(onPressed: onRetry, child: const Text('Try again')),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ClientDesktopBanner extends StatelessWidget {
+  const _ClientDesktopBanner({required this.onTakeOver});
+  final VoidCallback onTakeOver;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: Colors.amber.shade50,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Row(
+        children: [
+          Icon(Icons.computer, color: Colors.amber.shade800, size: 20),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Your files live on another computer. This Mac is acting as a client.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
+          TextButton(onPressed: onTakeOver, child: const Text('Host here instead')),
+        ],
       ),
     );
   }

@@ -67,6 +67,28 @@ class HostRoleNotifier extends StateNotifier<HostRoleState> {
     }
   }
 
+  /// Set the role without calling the server. Used by the bootstrap path to
+  /// say "we know another device on this account is the active host, so
+  /// don't even start HostLifecycle on this machine — run as a client."
+  /// No network call: the source of truth is GET /v1/accounts/me/active-host
+  /// which the caller has already checked.
+  void setClientOnly({String? activeHostDeviceId}) {
+    state = HostRoleState(role: HostRole.notHost, activeHostDeviceId: activeHostDeviceId);
+  }
+
+  /// Same idea — caller has already verified that we ARE the active host
+  /// (or there is no active host yet and we're going to claim it).
+  void setActive() {
+    state = HostRoleState(role: HostRole.active, activeHostDeviceId: cfgNotifier.state.deviceId);
+  }
+
+  /// We were the active host but the server says someone else is now.
+  /// Used when /v1/accounts/me/active-host returns a different device_id
+  /// at bootstrap (= we got demoted while we were offline).
+  void setDemoted({required String otherDeviceId}) {
+    state = HostRoleState(role: HostRole.demoted, activeHostDeviceId: otherDeviceId);
+  }
+
   /// Convenience: re-announce with takeOver=true. Called when user clicks the
   /// "Take it back" button on the demoted screen.
   Future<void> takeOver({

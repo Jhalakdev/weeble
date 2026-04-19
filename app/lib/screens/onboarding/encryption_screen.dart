@@ -19,12 +19,13 @@ class _EncryptionScreenState extends ConsumerState<EncryptionScreen> {
     await ref.read(appConfigProvider.notifier).update(
           (c) => c.copyWith(encryptionEnabled: _enabled, onboardingComplete: true),
         );
-    // Now that onboarding is complete, kick the host lifecycle — this
-    // registers the device, starts the file server, and announces to the
-    // VPS (flipping the "Online" pill on every other device the user owns).
+    // Onboarding done. Decide whether this Mac should host (claim slot if
+    // empty, resume if we're already the active host) or run as client (if
+    // a different machine on this account is currently the active host —
+    // then the user explicitly takes over via the client screen banner).
     // Don't await — we want the UI to proceed immediately.
     // ignore: unawaited_futures
-    ref.read(hostLifecycleProvider).ensureRunning(forceTakeOver: true);
+    ref.read(hostLifecycleProvider).decideRoleAndStart();
     if (mounted) context.go('/drive');
   }
 

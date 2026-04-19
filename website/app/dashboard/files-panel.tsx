@@ -1,16 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Upload, Download, FileText, CloudOff, RefreshCw, File } from 'lucide-react';
+import { Upload, Download, FileText, CloudOff, RefreshCw, File, Trash2 } from 'lucide-react';
 
 type FileItem = { id: string; name: string; size: number; mime: string; created_at: number };
 
 export function FilesPanel({ initialFiles, hostOnline }: { initialFiles: FileItem[]; hostOnline: boolean }) {
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
   const [online, setOnline] = useState(hostOnline);
+  const [reachable, setReachable] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pullDist, setPullDist] = useState(0);   // visual pull-to-refresh offset
+  const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartY = useRef<number | null>(null);
@@ -25,11 +28,36 @@ export function FilesPanel({ initialFiles, hostOnline }: { initialFiles: FileIte
       const body = await r.json();
       setFiles(body.files ?? []);
       setOnline(body.host_online ?? false);
+      setReachable(body.reachable ?? true);
     } catch (e) {
       setError(`Could not reach your storage (${e instanceof Error ? e.message : 'error'}).`);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function deleteFromHost(file: FileItem) {
+    setBusy(true);
+    setError(null);
+    // Optimistic remove from the list — restore on failure.
+    const before = files;
+    setFiles(files.filter((x) => x.id !== file.id));
+    try {
+      const r = await fetch(`/api/files/${encodeURIComponent(file.id)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error(`${r.status}`);
+    } catch (e) {
+      setFiles(before);
+      setError(`Could not delete (${e instanceof Error ? e.message : 'error'}).`);
+    } finally {
+      setBusy(false);
+      setDeleteTarget(null);
+    }
+  }
+
+  function hideOnlyHere(file: FileItem) {
+    // Local-only: remove from this browser session. Refresh restores it.
+    setHidden(new Set([...hidden, file.id]));
+    setDeleteTarget(null);
   }
 
   async function onFilesPicked(picked: FileList | null) {
@@ -137,9 +165,9 @@ export function FilesPanel({ initialFiles, hostOnline }: { initialFiles: FileIte
         <div className="mb-3 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">{error}</div>
       )}
 
-      {!online ? <OfflineState /> : files.length === 0 ? <EmptyState onPick={() => inputRef.current?.click()} /> : (
+      {!online ? <OfflineState /> : !reachable ? <UnreachableState /> : files.filter((f) => !hidden.has(f.id)).length === 0 ? <EmptyState onPick={() => inputRef.current?.click()} /> : (
         <ul className="divide-y divide-[color:var(--border)]">
-          {files.map((f) => (
+          {files.filter((f) => !hidden.has(f.id)).map((f) => (
             <li key={f.id} className="flex items-center gap-3 py-3">
               <FileIcon mime={f.mime} />
               <div className="flex-1 min-w-0">
@@ -156,11 +184,81 @@ export function FilesPanel({ initialFiles, hostOnline }: { initialFiles: FileIte
               >
                 <Download size={16} />
               </a>
+              <button
+                onClick={() => setDeleteTarget(f)}
+                className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-red-50 hover:text-red-600"
+                title="Delete"
+                aria-label={`Delete ${f.name}`}
+              >
+                <Trash2 size={16} />
+              </button>
             </li>
           ))}
         </ul>
       )}
+      {deleteTarget && (
+        <DeleteModal
+          file={deleteTarget}
+          busy={busy}
+          onCancel={() => setDeleteTarget(null)}
+          onDeleteFromHost={() => deleteFromHost(deleteTarget)}
+          onHideOnlyHere={() => hideOnlyHere(deleteTarget)}
+        />
+      )}
     </section>
+  );
+}
+
+function DeleteModal({
+  file, busy, onCancel, onDeleteFromHost, onHideOnlyHere,
+}: {
+  file: FileItem;
+  busy: boolean;
+  onCancel: () => void;
+  onDeleteFromHost: () => void;
+  onHideOnlyHere: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-[15px] font-semibold mb-1">Delete &ldquo;{file.name}&rdquo;?</h3>
+        <p className="text-xs text-[color:var(--text-muted)] mb-4 leading-relaxed">
+          You can remove this file from your Weeber storage (it disappears from
+          all your devices) or just hide it from this page.
+        </p>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onDeleteFromHost}
+            disabled={busy}
+            className="w-full inline-flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold px-3.5 py-2.5 rounded-lg"
+          >
+            <Trash2 size={14} /> Delete from Weeber (all devices)
+          </button>
+          <button
+            onClick={onHideOnlyHere}
+            disabled={busy}
+            className="w-full inline-flex items-center justify-center gap-1.5 bg-[color:var(--surface)] border border-[color:var(--border)] hover:bg-[color:var(--accent-muted)] text-[color:var(--text)] text-xs font-medium px-3.5 py-2.5 rounded-lg"
+          >
+            Just hide it from this page
+          </button>
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="w-full text-xs text-[color:var(--text-muted)] py-1.5 hover:text-[color:var(--text)]"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -175,6 +273,26 @@ function FileIcon({ mime }: { mime: string }) {
   return (
     <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: color + '1E' }}>
       <Icon size={16} style={{ color }} />
+    </div>
+  );
+}
+
+function UnreachableState() {
+  return (
+    <div className="text-center py-10 px-4">
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-50 text-amber-700 mb-3">
+        <CloudOff size={24} />
+      </div>
+      <div className="text-sm font-semibold">Storage online — but not reachable from the internet</div>
+      <div className="text-xs text-[color:var(--text-muted)] mt-1 mb-3 max-w-md mx-auto leading-relaxed">
+        Your home computer is online and registered, but your home router isn't forwarding the
+        right port to it. Until that's set up, the website can't list or download files
+        — but the app on the same Wi-Fi network as your computer will still work normally.
+      </div>
+      <div className="text-[11px] text-[color:var(--text-muted)] max-w-md mx-auto">
+        Fix: enable UPnP on your router, or manually forward the port shown in the desktop app's
+        debug log to your computer's local IP.
+      </div>
     </div>
   );
 }
