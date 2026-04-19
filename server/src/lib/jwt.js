@@ -16,16 +16,28 @@ function getKey() {
   return secretKey;
 }
 
-// Tokens last 1 hour. Clients refresh on demand. This is the subscription gate:
-// every refresh re-checks the account's subscription_status server-side.
+// Token TTL:
+//   - Account-bound (no `did`): 1 hour. This is a short-lived bearer
+//     from /v1/auth/login used until the device registers itself.
+//   - Device-bound (has `did`): 30 days. Host machines hold a persistent
+//     WebSocket tunnel open 24/7; forcing a rehandshake every hour
+//     meant the Mac would drop offline and reconnect forever with an
+//     expired token. Device revocation (via DELETE /v1/devices/:id)
+//     is the real security boundary — we don't need hourly rotation
+//     on top of it.
+//
+// Every request still re-runs requireActiveSubscription + requireAuth,
+// so a paused/canceled subscription blocks API calls regardless of
+// token age.
 export async function signAccessToken({ accountId, deviceId, plan }) {
+  const ttl = deviceId ? '30d' : '1h';
   return await new SignJWT({ plan, did: deviceId })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(accountId)
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
     .setIssuedAt()
-    .setExpirationTime('1h')
+    .setExpirationTime(ttl)
     .sign(getKey());
 }
 

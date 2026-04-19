@@ -87,6 +87,19 @@ class WeeberApi {
     );
   }
 
+  /// Exchange an expired (≤90 days past exp) device-bound token for a
+  /// fresh one. Used by HostTunnel when the VPS rejects its token —
+  /// avoids forcing the user to log in again just because the host's
+  /// long-running WebSocket lived past the 30-day TTL.
+  Future<String?> refreshToken(String oldToken) async {
+    try {
+      final json = await _post('/v1/auth/refresh', body: {'token': oldToken});
+      return json['token'] as String?;
+    } on ApiException {
+      return null;
+    }
+  }
+
   Future<DeviceRegistration> registerDevice({
     required String token,
     required String name,

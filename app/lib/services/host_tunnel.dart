@@ -33,6 +33,7 @@ class HostTunnel {
   bool _shouldRun = false;
   bool _connected = false;
   String? _lastError;
+  bool _tokenMaybeStale = false;
 
   // Queue + waiter for binary body frames. The VPS sends:
   //   {type:'req', hasBody:true} → binary frame → {type:'req-end'}
@@ -73,6 +74,31 @@ class HostTunnel {
 
   Future<void> _connectOnce() async {
     if (!_shouldRun) return;
+    // If the VPS rejected our last attempt with invalid_token, call
+    // /v1/auth/refresh before reconnecting. Exchanges any expired
+    // device-bound JWT (≤90 days past exp) for a fresh 30-day one,
+    // and swaps it into authProvider so every other network call
+    // picks it up too. No user re-login needed.
+    if (_tokenMaybeStale) {
+      _tokenMaybeStale = false;
+      final old = ref.read(authProvider).token;
+      if (old != null) {
+        try {
+          final fresh = await ref.read(apiProvider).refreshToken(old);
+          if (fresh != null) {
+            await ref.read(authProvider.notifier).replaceToken(fresh);
+            // ignore: avoid_print
+            print('[tunnel] token refreshed');
+          } else {
+            // ignore: avoid_print
+            print('[tunnel] refresh returned null — beyond grace window');
+          }
+        } catch (e) {
+          // ignore: avoid_print
+          print('[tunnel] refresh failed: $e');
+        }
+      }
+    }
     final auth = ref.read(authProvider);
     final token = auth.token;
     if (token == null) {
@@ -152,6 +178,18 @@ class HostTunnel {
       }
       if (type == 'req-end') {
         // (no body upload from VPS in our protocol — req-end is just a marker)
+        return;
+      }
+      if (type == 'error') {
+        final err = msg['error'] as String?;
+        // ignore: avoid_print
+        print('[tunnel] server error frame: $err');
+        // The VPS closes the socket immediately after. _onClosed will
+        // schedule the next reconnect; we just flag that our token
+        // might be stale so the reconnect path refreshes first.
+        if (err == 'invalid_token' || err == 'no_device_binding') {
+          _tokenMaybeStale = true;
+        }
         return;
       }
     }
