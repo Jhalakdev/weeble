@@ -19,14 +19,15 @@ class AppTheme {
   static const Color lightTextMuted = Color(0xFF767B93);
   static const Color lightSidebarActiveBg = Color(0xFFF1F1FE);
 
-  // Dark-mode
-  static const Color darkBody = Color(0xFF161B2B);
-  static const Color darkSurface = Color(0xFF1E2339);
-  static const Color darkSidebar = Color(0xFF1E2339);
-  static const Color darkBorder = Color(0xFF2A3049);
-  static const Color darkTextPrimary = Color(0xFFFFFFFF);
-  static const Color darkTextMuted = Color(0xFF8A91A8);
-  static const Color darkSidebarActiveBg = Color(0xFF2A3058);
+  // Dark-mode — premium neutral (Vercel/Linear/Apple). Blue lives ONLY
+  // in the accent so it reads as a pop against pure-grayscale surfaces.
+  static const Color darkBody = Color(0xFF0A0A0A);            // near-black canvas
+  static const Color darkSurface = Color(0xFF141414);         // cards / panels
+  static const Color darkSidebar = Color(0xFF0F0F0F);         // one notch darker for depth
+  static const Color darkBorder = Color(0xFF262626);          // hairline divider
+  static const Color darkTextPrimary = Color(0xFFF5F5F5);     // off-white, easier on eyes
+  static const Color darkTextMuted = Color(0xFFA3A3A3);       // neutral-400
+  static const Color darkSidebarActiveBg = Color(0xFF1A1A22); // black with whisper of accent
 
   // File-type icon palette
   static const Color fileRed = Color(0xFFEF4444);

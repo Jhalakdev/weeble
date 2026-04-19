@@ -20,13 +20,17 @@
 }
 
 .dark, [data-theme="dark"] {
-  --body: #161b2b;
-  --surface: #1e2339;
-  --sidebar: #1e2339;
-  --border: #2a3049;
-  --text-primary: #ffffff;
-  --text-muted: #8a91a8;
-  --sidebar-active-bg: #2a3058;
+  /* Premium neutral dark — Vercel/Linear/Apple style. Blue ONLY in the
+     accent (buttons, links, active state). Surfaces stay pure grayscale
+     so the accent reads as a pop, not as bleed. */
+  --body: #0a0a0a;            /* near-black canvas */
+  --surface: #141414;         /* cards, panels */
+  --sidebar: #0f0f0f;         /* one notch darker than surface for depth */
+  --border: #262626;          /* hairline divider */
+  --text-primary: #f5f5f5;    /* slightly off-white, easier on eyes than #fff */
+  --text-muted: #a3a3a3;      /* neutral-400 */
+  --accent-muted: #1a1a22;    /* near-black with a hint of accent for hover/active bg */
+  --sidebar-active-bg: #1a1a22;
 }
 
 @theme inline {
