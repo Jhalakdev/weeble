@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+:root {
+  /* CloudBox-style palette */
+  --accent: #8f93f6;
+  --accent-hover: #6e74f2;
+  --accent-muted: #f1f1fe;
+
+  /* Light mode */
+  --body: #fafbfe;
+  --surface: #ffffff;
+  --sidebar: #ffffff;
+  --border: #e7e9f4;
+  --text-primary: #1c2033;
+  --text-muted: #767b93;
+  --sidebar-active-bg: #f1f1fe;
+
+  --background: var(--body);
+  --foreground: var(--text-primary);
+}
+
+.dark, [data-theme="dark"] {
+  --body: #161b2b;
+  --surface: #1e2339;
+  --sidebar: #1e2339;
+  --border: #2a3049;
+  --text-primary: #ffffff;
+  --text-muted: #8a91a8;
+  --sidebar-active-bg: #2a3058;
+}
+
+@theme inline {
+  --color-background: var(--body);
+  --color-foreground: var(--text-primary);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-muted: var(--accent-muted);
+  --color-surface: var(--surface);
+  --color-sidebar: var(--sidebar);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+  --color-sidebar-active-bg: var(--sidebar-active-bg);
+  --font-sans: var(--font-poppins), 'Poppins', sans-serif;
+}
+
+html, body {
+  background: var(--body);
+  color: var(--text-primary);
+}

@@ -1,0 +1,68 @@
+name: weeber_app
+description: "Weeber — your PC, your cloud"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Core
+  http: ^1.2.2
+  flutter_riverpod: ^2.5.1
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  go_router: ^14.6.0
+
+  # File ops + UI
+  file_picker: ^8.1.2
+  desktop_drop: ^0.4.4
+  qr_flutter: ^4.1.0
+
+  # Crypto (AES-256-GCM)
+  cryptography: ^2.7.0
+
+  # Local file index
+  sqflite: ^2.4.0
+  sqflite_common_ffi: ^2.3.3
+
+  # Disk space
+  disk_space_plus: ^0.2.3
+
+  # QR scanning (mobile)
+  mobile_scanner: ^5.2.3
+
+  # Host HTTPS server
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
+
+  # X.509 self-signed certificate generation
+  basic_utils: ^5.7.0
+
+  # Image preview
+  cached_network_image: ^3.4.1
+
+  # Used by upnp + cert services
+  xml: ^6.5.0
+  crypto: ^3.0.5
+
+  # Security: device fingerprint + JWT verification
+  device_info_plus: ^11.2.0
+  dart_jsonwebtoken: ^2.14.2
+
+  # UI: Poppins font + charts
+  google_fonts: ^6.2.1
+  fl_chart: ^0.69.0
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
