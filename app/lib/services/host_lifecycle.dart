@@ -12,7 +12,9 @@ import 'host_server.dart';
 import 'host_tunnel.dart';
 import 'keypair.dart';
 import 'linux_bookmark.dart';
+import 'mac_finder_sidebar.dart';
 import 'upnp.dart';
+import 'windows_quick_access.dart';
 
 /// Host-side runtime: device registration, TLS cert, UPnP, HTTPS server,
 /// and periodic IP announce. Highly defensive — every step is wrapped so
@@ -117,14 +119,22 @@ class HostLifecycle {
       return;
     }
 
-    // Linux file-manager sidebar bookmark — fire-and-forget, idempotent,
-    // no-op on macOS/Windows. Drops a "Weeber" entry into Nautilus /
-    // Files / Dolphin so users can drag-drop into the storage folder
-    // directly. (The proper Finder File Provider Extension on macOS and
-    // Cloud Files API on Windows ship in follow-up passes — see
-    // memory: weeber_finder_sidebar_roadmap.md.)
+    // OS file-manager sidebar entries — fire-and-forget, idempotent,
+    // each is a no-op on platforms it doesn't apply to. Drops a
+    // "Weeber" shortcut into Finder (macOS) / Quick Access (Windows) /
+    // Nautilus + Dolphin (Linux) so users can drag-drop into the
+    // storage folder directly.
+    //
+    // None of these need a File Provider Extension or Cloud Files API
+    // — those would only be needed if Weeber wanted online-only files
+    // with lazy download semantics. For us the storage folder is
+    // already a real folder on disk, so a sidebar shortcut is enough.
     // ignore: unawaited_futures
     LinuxBookmark.ensure(cfg.storagePath!);
+    // ignore: unawaited_futures
+    MacFinderSidebar.ensure(cfg.storagePath!);
+    // ignore: unawaited_futures
+    WindowsQuickAccess.ensure(cfg.storagePath!);
     if (auth.token == null) {
       _log('SKIP: not logged in');
       return;
