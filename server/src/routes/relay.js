@@ -154,11 +154,15 @@ export default async function relayRoutes(app) {
       },
     },
   }, async (req, reply) => {
-    if (!req.auth.deviceId) return reply.code(400).send({ error: 'no_device_binding' });
+    // Drop the old "must be a registered device" check. JWT + active
+    // subscription is sufficient auth for relay uploads — browsers
+    // (and other lightweight clients) can't easily self-register as
+    // devices, and the audit trail is keyed by accountId anyway.
+    // deviceId is still recorded when present, just no longer required.
     const conn = tunnelHub.get(req.auth.accountId);
     if (!conn) return reply.code(503).send({ error: 'host_offline' });
 
-    audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.upload.start', detail: { name: req.query.name } });
+    audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId ?? null, ip: ipOf(req), action: 'relay.upload.start', detail: { name: req.query.name } });
 
     try {
       const body = req.body;
