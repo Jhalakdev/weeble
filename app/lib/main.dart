@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +18,7 @@ import 'screens/pairing/host_qr_screen.dart';
 import 'screens/pairing/scan_qr_screen.dart';
 import 'security/embedded_secrets.g.dart';
 import 'security/license_guard.dart';
+import 'services/client_registration.dart';
 import 'services/host_lifecycle.dart';
 import 'state/auth.dart';
 import 'state/config.dart';
@@ -57,6 +59,18 @@ class _WeeberAppState extends ConsumerState<WeeberApp> {
     // Mobile devices skip this — they're always clients.
     // ignore: unawaited_futures
     ref.read(hostLifecycleProvider).decideRoleAndStart();
+
+    // Mobile devices register themselves as CLIENT devices so the JWT
+    // carries `did` (without it, /v1/relay/upload returns 400
+    // no_device_binding). Desktops are handled by HostLifecycle —
+    // either as 'host' (active) or implicitly via the host registration
+    // that happened when this Mac last hosted, so the token already has
+    // `did`. We only need this extra path on iOS/Android.
+    final auth2 = ref.read(authProvider);
+    if (auth2.isLoggedIn && (Platform.isAndroid || Platform.isIOS)) {
+      // ignore: unawaited_futures
+      ref.read(clientRegistrationProvider).ensureRegistered();
+    }
     if (mounted) setState(() => _bootstrapped = true);
   }
 
