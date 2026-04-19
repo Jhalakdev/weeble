@@ -53,6 +53,20 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant ClientDriveScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If GoRouter reuses the State across route switches (same widget
+    // type, different filter) the file list would stay stale. Detect the
+    // filter change and force a refetch — Trash needs include_deleted=true
+    // on the wire, the others need it false.
+    if (oldWidget.filter != widget.filter) {
+      _files = [];
+      _loading = true;
+      _refresh();
+    }
+  }
+
+  @override
   void dispose() {
     _poll?.cancel();
     super.dispose();

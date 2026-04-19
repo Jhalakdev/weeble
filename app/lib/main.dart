@@ -93,15 +93,21 @@ GoRouter _buildRouter(WidgetRef ref) {
         // Decide host vs client view based on the role we determined at
         // bootstrap (which asked the VPS who the active host is).
         final role = ref.read(hostRoleProvider).role;
-        return role == HostRole.active ? const DriveScreen() : const ClientDriveScreen();
+        return role == HostRole.active
+            ? const DriveScreen()
+            : const ClientDriveScreen(key: ValueKey('drive-mine'));
       }),
       // Filtered views — Recent/Favorites/Trash all render through
-      // ClientDriveScreen with a filter param. The Trash route fetches
-      // soft-deleted entries from the host; Favorites reads the local
-      // FavoritesService; Recent sorts by created_at desc.
-      GoRoute(path: '/drive/recent', builder: (_, _) => const ClientDriveScreen(filter: DriveFilter.recent)),
-      GoRoute(path: '/drive/favorites', builder: (_, _) => const ClientDriveScreen(filter: DriveFilter.favorites)),
-      GoRoute(path: '/drive/trash', builder: (_, _) => const ClientDriveScreen(filter: DriveFilter.trash)),
+      // ClientDriveScreen with a filter param. ValueKey per route forces
+      // Flutter to create a fresh State on each switch (otherwise the
+      // file list stays stale because the State persists across the
+      // /drive/* tree).
+      GoRoute(path: '/drive/recent', builder: (_, _) =>
+          const ClientDriveScreen(key: ValueKey('drive-recent'), filter: DriveFilter.recent)),
+      GoRoute(path: '/drive/favorites', builder: (_, _) =>
+          const ClientDriveScreen(key: ValueKey('drive-favorites'), filter: DriveFilter.favorites)),
+      GoRoute(path: '/drive/trash', builder: (_, _) =>
+          const ClientDriveScreen(key: ValueKey('drive-trash'), filter: DriveFilter.trash)),
       GoRoute(path: '/devices', builder: (_, _) => const DevicesScreen()),
       GoRoute(path: '/account', builder: (_, _) => const AccountScreen()),
       GoRoute(path: '/pair/host', builder: (_, _) => const HostQrScreen()),
