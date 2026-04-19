@@ -4,6 +4,11 @@ import 'package:launch_at_startup/launch_at_startup.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+/// Method channel to Swift. The native side hides on close instead of
+/// quitting; this channel is how Dart requests a REAL quit from the
+/// tray's "Quit Weeber" menu item.
+const _quitChannel = MethodChannel('app.weeber/quit');
+
 /// "Always-on" desktop integration:
 ///   - Auto-launch on system boot (LaunchAgent on macOS, Run registry
 ///     entry on Windows, autostart .desktop on Linux). Re-asserted every
@@ -30,10 +35,14 @@ class DesktopLifecycle with TrayListener, WindowListener {
     _ready = true;
 
     // Window: don't quit on close — hide instead. The host's tunnel
-    // and HTTPS server keep running.
+    // and HTTPS server keep running. On macOS the hiding is handled
+    // natively in MainFlutterWindow.swift (windowShouldClose); on
+    // Windows + Linux we use window_manager's Dart-side interception.
     await windowManager.ensureInitialized();
-    await windowManager.setPreventClose(true);
-    windowManager.addListener(this);
+    if (!Platform.isMacOS) {
+      await windowManager.setPreventClose(true);
+      windowManager.addListener(this);
+    }
 
     // Tray icon — tiny menu bar / system tray entry.
     try {
@@ -118,6 +127,14 @@ class DesktopLifecycle with TrayListener, WindowListener {
   }
 
   Future<void> _showWindow() async {
+    // On macOS the window was hidden via orderOut() + activation
+    // policy = accessory. Flip it back to regular so the dock icon
+    // returns, then show + focus.
+    if (Platform.isMacOS) {
+      try {
+        await _quitChannel.invokeMethod('show');
+      } catch (_) {}
+    }
     await windowManager.show();
     await windowManager.focus();
   }
@@ -137,7 +154,19 @@ class DesktopLifecycle with TrayListener, WindowListener {
   }
 
   Future<void> _hardQuit() async {
-    await windowManager.destroy();
+    if (Platform.isMacOS) {
+      // Ask Swift to call NSApp.terminate(nil) — the Swift delegate
+      // flips its quitRequested flag first so the next
+      // windowShouldClose returns YES and the app genuinely exits.
+      try {
+        await _quitChannel.invokeMethod('quit');
+      } catch (_) {
+        // Fall through to window_manager's destroy as a backstop.
+        await windowManager.destroy();
+      }
+    } else {
+      await windowManager.destroy();
+    }
   }
 
   bool get _isDesktop => Platform.isMacOS || Platform.isWindows || Platform.isLinux;
