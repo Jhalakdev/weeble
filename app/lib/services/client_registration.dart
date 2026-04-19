@@ -36,7 +36,10 @@ class ClientRegistration {
             name: await _localDeviceName(),
             pubkey: kp.publicKeyB64,
           );
-      await ref.read(authProvider.notifier).replaceToken(reg.token);
+      await ref.read(authProvider.notifier).replaceToken(
+        reg.token,
+        refreshToken: reg.refreshToken,
+      );
       await ref.read(appConfigProvider.notifier).update((c) => c.copyWith(deviceId: reg.deviceId));
     } catch (_) {
       // Network blip — we'll retry on the next launch. Until then,

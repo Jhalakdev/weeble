@@ -74,29 +74,19 @@ class HostTunnel {
 
   Future<void> _connectOnce() async {
     if (!_shouldRun) return;
-    // If the VPS rejected our last attempt with invalid_token, call
-    // /v1/auth/refresh before reconnecting. Exchanges any expired
-    // device-bound JWT (≤90 days past exp) for a fresh 30-day one,
-    // and swaps it into authProvider so every other network call
-    // picks it up too. No user re-login needed.
+    // If the VPS rejected our last attempt with invalid_token, rotate
+    // via the refresh token before reconnecting. authProvider holds
+    // the refresh_token; refreshIfNeeded() swaps in the new pair so
+    // every other network call (relay, billing, devices) picks it up.
     if (_tokenMaybeStale) {
       _tokenMaybeStale = false;
-      final old = ref.read(authProvider).token;
-      if (old != null) {
-        try {
-          final fresh = await ref.read(apiProvider).refreshToken(old);
-          if (fresh != null) {
-            await ref.read(authProvider.notifier).replaceToken(fresh);
-            // ignore: avoid_print
-            print('[tunnel] token refreshed');
-          } else {
-            // ignore: avoid_print
-            print('[tunnel] refresh returned null — beyond grace window');
-          }
-        } catch (e) {
-          // ignore: avoid_print
-          print('[tunnel] refresh failed: $e');
-        }
+      try {
+        final fresh = await ref.read(authProvider.notifier).refreshIfNeeded();
+        // ignore: avoid_print
+        print('[tunnel] refresh ${fresh != null ? "ok" : "rejected"}');
+      } catch (e) {
+        // ignore: avoid_print
+        print('[tunnel] refresh failed: $e');
       }
     }
     final auth = ref.read(authProvider);

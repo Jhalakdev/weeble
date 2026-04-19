@@ -1,22 +1,11 @@
 import argon2 from 'argon2';
-import { jwtVerify } from 'jose';
 import { getDb } from '../db/index.js';
 import { ulid, urlSafeToken } from '../lib/ids.js';
 import { signAccessToken } from '../lib/jwt.js';
-
-// Mirror of lib/jwt.js internals — duplicated here to avoid exporting
-// the raw key. Only used by the refresh endpoint below.
-const JWT_ISSUER = 'weeber';
-const JWT_AUDIENCE = 'weeber-app';
-let _refreshKey;
-function _getRefreshKey() {
-  if (!_refreshKey) {
-    const raw = process.env.JWT_SECRET;
-    if (!raw) throw new Error('JWT_SECRET missing');
-    _refreshKey = new TextEncoder().encode(raw);
-  }
-  return _refreshKey;
-}
+import {
+  mintRefreshToken, rotateRefreshToken, revokeRefreshToken,
+  REFRESH_COOKIE_MAX_AGE_SECONDS,
+} from '../lib/refresh.js';
 
 export default async function authRoutes(app) {
   app.post('/v1/auth/register', {
@@ -68,14 +57,89 @@ export default async function authRoutes(app) {
     const ok = await argon2.verify(account.password_hash, password);
     if (!ok) return reply.code(401).send({ error: 'invalid_credentials' });
 
-    // Issue a token without a device binding. The device must register separately
-    // (which produces a device_id) before it can announce itself or look up endpoints.
-    const token = await signAccessToken({
+    // Issue BOTH a short-lived access token AND a long-lived rotating
+    // refresh token. Clients store the refresh token; whenever their
+    // access token 401s, they POST it to /v1/auth/refresh and get a
+    // fresh pair transparently. Industry-standard pattern used by
+    // Stripe, Slack, GitHub, Vercel, etc.
+    //
+    // device_id is NULL at login time — the native client registers
+    // its device separately which then mints a device-bound pair.
+    // Web sessions never have a device_id; that's fine because
+    // revoking a web session just revokes that refresh family.
+    const access = await signAccessToken({
+      accountId: account.id, deviceId: null, plan: account.plan,
+    });
+    const refresh = await mintRefreshToken(db, {
+      accountId: account.id, deviceId: null,
+      userAgent: req.headers['user-agent']?.slice(0, 200) ?? null,
+      ip: req.ip ?? null,
+    });
+    return {
+      token: access,          // legacy field — older clients still look for `token`
+      access_token: access,
+      refresh_token: refresh,
+      account_id: account.id,
+      plan: account.plan,
+      status: account.subscription_status,
+    };
+  });
+
+  // Refresh endpoint. Swap an old refresh token for a fresh pair.
+  // Rotating one-shot: the old refresh token becomes invalid
+  // immediately; presenting it again is treated as theft and
+  // revokes the whole family.
+  app.post('/v1/auth/refresh', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['refresh_token'],
+        properties: { refresh_token: { type: 'string', maxLength: 200 } },
+      },
+    },
+  }, async (req, reply) => {
+    const db = getDb();
+    let rotated;
+    try {
+      rotated = await rotateRefreshToken(db, req.body.refresh_token, {
+        userAgent: req.headers['user-agent']?.slice(0, 200) ?? null,
+        ip: req.ip ?? null,
+      });
+    } catch (e) {
+      // 'not_found' | 'expired' | 'revoked' | 'reuse'
+      return reply.code(401).send({ error: e.code || 'refresh_rejected' });
+    }
+
+    const account = db.prepare('SELECT id, plan FROM accounts WHERE id = ?').get(rotated.accountId);
+    if (!account) return reply.code(401).send({ error: 'no_account' });
+
+    const access = await signAccessToken({
       accountId: account.id,
-      deviceId: null,
+      deviceId: rotated.deviceId,
       plan: account.plan,
     });
-    return { token, account_id: account.id, plan: account.plan, status: account.subscription_status };
+    return {
+      access_token: access,
+      refresh_token: rotated.refreshToken,
+      token: access, // legacy
+    };
+  });
+
+  // Logout. Revokes the supplied refresh token (and its whole family,
+  // so any descendants already issued are dead). Idempotent —
+  // presenting an already-revoked token is a no-op.
+  app.post('/v1/auth/logout', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: { refresh_token: { type: 'string', maxLength: 200 } },
+      },
+    },
+  }, async (req, reply) => {
+    if (req.body?.refresh_token) {
+      await revokeRefreshToken(getDb(), req.body.refresh_token);
+    }
+    return { ok: true };
   });
 
   // Pairing: existing host generates a single-use token (shown as QR code).
@@ -121,60 +185,8 @@ export default async function authRoutes(app) {
     return { token: jwt, account_id: account.id, plan: account.plan };
   });
 
-  // Token refresh. The signature must still be valid and the token
-  // must still carry a `did` (device-bound). We tolerate expired
-  // tokens up to 90 days past `exp` — that's the "lost device"
-  // window. Beyond that the user has to log in again.
-  //
-  // Why this exists: persistent host WebSocket tunnels live 24/7 on
-  // the user's computer. A 30-day device JWT is forgiving, but it
-  // still eventually expires. Without refresh, a host would silently
-  // drop offline one month in and reconnect forever with a stale
-  // token (already observed in prod 2026-04-19). This endpoint lets
-  // the Mac / phone / browser heal itself without a user re-login.
-  app.post('/v1/auth/refresh', {
-    schema: {
-      body: {
-        type: 'object',
-        required: ['token'],
-        properties: { token: { type: 'string', maxLength: 4096 } },
-      },
-    },
-  }, async (req, reply) => {
-    const raw = req.body.token;
-    let payload;
-    try {
-      const result = await jwtVerify(raw, _getRefreshKey(), {
-        issuer: JWT_ISSUER,
-        audience: JWT_AUDIENCE,
-        // Accept tokens that expired up to 90 days ago. `clockTolerance`
-        // extends the window jose considers valid for both `nbf` and
-        // `exp`. Signature validation itself is unchanged.
-        clockTolerance: '90d',
-      });
-      payload = result.payload;
-    } catch (e) {
-      return reply.code(401).send({ error: 'refresh_rejected', detail: String(e.code || e.message) });
-    }
-
-    const accountId = payload.sub;
-    const deviceId = payload.did;
-    if (!deviceId) return reply.code(400).send({ error: 'not_device_bound' });
-
-    const db = getDb();
-    const device = db.prepare(
-      'SELECT id FROM devices WHERE id = ? AND account_id = ? AND revoked_at IS NULL'
-    ).get(deviceId, accountId);
-    if (!device) return reply.code(403).send({ error: 'device_revoked_or_missing' });
-
-    const account = db.prepare('SELECT id, plan FROM accounts WHERE id = ?').get(accountId);
-    if (!account) return reply.code(403).send({ error: 'no_account' });
-
-    const fresh = await signAccessToken({
-      accountId: account.id,
-      deviceId,
-      plan: account.plan,
-    });
-    return { token: fresh };
-  });
 }
+// (The older "expired-JWT grace" /v1/auth/refresh endpoint was replaced
+// above by the proper rotating-refresh-token version. Clients that still
+// POST {token: <jwt>} will get a 400 from the schema validator; they're
+// expected to update to {refresh_token: <wr_...>} on their next build.)

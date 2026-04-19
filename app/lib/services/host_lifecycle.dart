@@ -161,7 +161,13 @@ class HostLifecycle {
         name: _localDeviceName(),
         pubkey: keyPair.publicKeyB64,
       );
-      await ref.read(authProvider.notifier).replaceToken(reg.token);
+      // Device registration issues a fresh device-bound access token
+      // AND a device-bound refresh token. Persist both — the refresh
+      // is how the tunnel heals itself 30+ days later.
+      await ref.read(authProvider.notifier).replaceToken(
+        reg.token,
+        refreshToken: reg.refreshToken,
+      );
       await ref.read(appConfigProvider.notifier).update((c) => c.copyWith(deviceId: reg.deviceId));
       _log('STEP 1/5 OK: deviceId=${reg.deviceId}');
     } catch (e, st) {

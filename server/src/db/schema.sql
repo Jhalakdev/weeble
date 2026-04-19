@@ -22,6 +22,35 @@ CREATE TABLE IF NOT EXISTS accounts (
 
 CREATE INDEX IF NOT EXISTS idx_accounts_stripe ON accounts(stripe_customer_id);
 
+-- Refresh tokens. Rotating one-shot pattern: every use mints a new
+-- token and marks the old as replaced_by. Re-use of an already-
+-- replaced token triggers a theft alert and revokes the whole family.
+--
+-- token_hash = argon2id(refresh_token) so a DB dump never exposes
+-- usable bearer tokens.
+--
+-- device_id is nullable: web-browser sessions aren't device-bound,
+-- just account-bound. For those, device_id IS NULL. Native clients
+-- (Mac / iOS / Android) have a device row and set device_id so
+-- revoking a device also revokes all its refresh tokens.
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id              TEXT PRIMARY KEY,
+  account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  device_id       TEXT REFERENCES devices(id) ON DELETE CASCADE,
+  token_hash      TEXT NOT NULL,
+  family_id       TEXT NOT NULL,
+  created_at      INTEGER NOT NULL,
+  expires_at      INTEGER NOT NULL,
+  used_at         INTEGER,
+  replaced_by     TEXT REFERENCES refresh_tokens(id),
+  revoked_at      INTEGER,
+  user_agent      TEXT,
+  ip              TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_refresh_family ON refresh_tokens(family_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_account ON refresh_tokens(account_id, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_refresh_device ON refresh_tokens(device_id);
+
 -- Devices: one row per host or client device linked to an account.
 CREATE TABLE IF NOT EXISTS devices (
   id              TEXT PRIMARY KEY,             -- ULID

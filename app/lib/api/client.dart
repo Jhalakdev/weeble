@@ -11,17 +11,25 @@ class ApiException implements Exception {
 }
 
 class AuthResponse {
-  AuthResponse({required this.token, required this.accountId, required this.plan, required this.status});
-  final String token;
+  AuthResponse({required this.token, this.refreshToken, required this.accountId, required this.plan, required this.status});
+  final String token;                // short-lived access token
+  final String? refreshToken;        // 90-day rotating refresh — null for older servers
   final String accountId;
   final String plan;
   final String status;
 }
 
+class TokenPair {
+  TokenPair({required this.accessToken, required this.refreshToken});
+  final String accessToken;
+  final String refreshToken;
+}
+
 class DeviceRegistration {
-  DeviceRegistration({required this.deviceId, required this.token});
+  DeviceRegistration({required this.deviceId, required this.token, this.refreshToken});
   final String deviceId;
   final String token;
+  final String? refreshToken;
 }
 
 class BillingStatus {
@@ -80,24 +88,35 @@ class WeeberApi {
   Future<AuthResponse> login(String email, String password) async {
     final json = await _post('/v1/auth/login', body: {'email': email, 'password': password});
     return AuthResponse(
-      token: json['token'] as String,
+      token: (json['access_token'] as String?) ?? json['token'] as String,
+      refreshToken: json['refresh_token'] as String?,
       accountId: json['account_id'] as String,
       plan: json['plan'] as String,
       status: json['status'] as String,
     );
   }
 
-  /// Exchange an expired (≤90 days past exp) device-bound token for a
-  /// fresh one. Used by HostTunnel when the VPS rejects its token —
-  /// avoids forcing the user to log in again just because the host's
-  /// long-running WebSocket lived past the 30-day TTL.
-  Future<String?> refreshToken(String oldToken) async {
+  /// Rotate a refresh token → fresh {access, refresh} pair. The old
+  /// refresh is invalidated server-side. Re-using it counts as theft
+  /// and the whole family is revoked.
+  Future<TokenPair?> refreshPair(String refreshToken) async {
     try {
-      final json = await _post('/v1/auth/refresh', body: {'token': oldToken});
-      return json['token'] as String?;
+      final json = await _post('/v1/auth/refresh', body: {'refresh_token': refreshToken});
+      final access = (json['access_token'] as String?) ?? json['token'] as String?;
+      final refresh = json['refresh_token'] as String?;
+      if (access == null || refresh == null) return null;
+      return TokenPair(accessToken: access, refreshToken: refresh);
     } on ApiException {
       return null;
     }
+  }
+
+  /// Revoke a refresh token (and its entire family) server-side.
+  /// Safe to call even if the token is already revoked / unknown.
+  Future<void> logout(String refreshToken) async {
+    try {
+      await _post('/v1/auth/logout', body: {'refresh_token': refreshToken});
+    } catch (_) { /* best-effort */ }
   }
 
   Future<DeviceRegistration> registerDevice({
@@ -112,7 +131,11 @@ class WeeberApi {
       'platform': _platform(),
       'pubkey': pubkey,
     });
-    return DeviceRegistration(deviceId: json['device_id'] as String, token: json['token'] as String);
+    return DeviceRegistration(
+      deviceId: json['device_id'] as String,
+      token: (json['access_token'] as String?) ?? json['token'] as String,
+      refreshToken: json['refresh_token'] as String?,
+    );
   }
 
   Future<BillingStatus> billingStatus(String token) async {

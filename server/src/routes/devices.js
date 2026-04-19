@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { ulid } from '../lib/ids.js';
 import { signAccessToken } from '../lib/jwt.js';
+import { mintRefreshToken, revokeDeviceRefreshTokens } from '../lib/refresh.js';
 
 export default async function deviceRoutes(app) {
   // Register a new device under the authenticated account.
@@ -50,7 +51,21 @@ export default async function deviceRoutes(app) {
       deviceId: id,
       plan: account.plan,
     });
-    return { device_id: id, token, existing: !!existing };
+    // Mint a device-bound refresh token so the native client can
+    // refresh its short-lived access token without re-login.
+    const refresh = await mintRefreshToken(db, {
+      accountId: req.auth.accountId,
+      deviceId: id,
+      userAgent: req.headers['user-agent']?.slice(0, 200) ?? null,
+      ip: req.ip ?? null,
+    });
+    return {
+      device_id: id,
+      token,
+      access_token: token,
+      refresh_token: refresh,
+      existing: !!existing,
+    };
   });
 
   // List devices on the account.
@@ -94,6 +109,9 @@ export default async function deviceRoutes(app) {
       WHERE id = ? AND account_id = ? AND revoked_at IS NULL
     `).run(now, req.params.id, req.auth.accountId);
     if (result.changes === 0) return reply.code(404).send({ error: 'not_found' });
+    // Also revoke every refresh token bound to this device so the
+    // client can't mint new access tokens after revocation.
+    revokeDeviceRefreshTokens(db, req.params.id);
     return { ok: true };
   });
 

@@ -15,7 +15,10 @@ export async function POST(req: Request) {
 
   try {
     const auth = await api.login(body.email, body.password);
-    await setSessionToken(auth.token);
+    // Store BOTH tokens as httpOnly cookies. `weeber_access` (1 h) is
+    // sent as Bearer on every upstream call; `weeber_refresh` (90 d)
+    // is used by /api/auth/refresh to rotate when access expires.
+    await setSessionToken(auth.access_token ?? auth.token, auth.refresh_token ?? null);
     return NextResponse.json({ ok: true });
   } catch (e) {
     const status = (e as Error & { status?: number }).status ?? 500;

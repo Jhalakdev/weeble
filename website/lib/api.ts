@@ -4,10 +4,18 @@
 const API_URL = process.env.WEEBER_API_URL || 'http://localhost:3030';
 
 export type AuthResponse = {
-  token: string;
+  token: string;                 // legacy alias for access_token — still set for back-compat
+  access_token?: string;
+  refresh_token?: string | null;
   account_id: string;
   plan: string;
   status: string;
+};
+
+export type RefreshResponse = {
+  access_token: string;
+  refresh_token: string;
+  token?: string;
 };
 
 export type BillingStatus = {
@@ -47,6 +55,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
+
+  refresh: (refreshToken: string) =>
+    request<RefreshResponse>('/v1/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }),
+
+  logout: (refreshToken: string | null) =>
+    request<{ ok: true }>('/v1/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+    }).catch(() => ({ ok: true as const })),
 
   billingStatus: (token: string) =>
     request<BillingStatus>('/v1/billing/status', {
