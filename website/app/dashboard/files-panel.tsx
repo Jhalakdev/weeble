@@ -925,7 +925,7 @@ function TransferOverlay({
 }) {
   if (uploads.length === 0 && downloads.length === 0) return null;
   return (
-    <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:bottom-4 sm:w-[360px] z-30 space-y-2">
+    <div className="fixed left-4 right-4 sm:left-auto sm:right-4 sm:w-[360px] z-50 space-y-2 bottom-24 sm:bottom-4">
       {uploads.map((u) => (
         <ProgressRow
           key={u.id}
