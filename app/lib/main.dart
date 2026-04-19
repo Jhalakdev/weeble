@@ -10,7 +10,6 @@ import 'screens/main/account_screen.dart';
 import 'screens/main/client_drive_screen.dart';
 import 'screens/main/demoted_screen.dart';
 import 'screens/main/devices_screen.dart';
-import 'screens/main/drive_screen.dart';
 import 'screens/onboarding/encryption_screen.dart';
 import 'screens/onboarding/storage_screen.dart';
 import 'screens/onboarding/welcome_screen.dart';
@@ -110,10 +109,13 @@ GoRouter _buildRouter(WidgetRef ref) {
       GoRoute(path: '/onboarding/storage', pageBuilder: (_, s) => _instant(s, const StorageScreen())),
       GoRoute(path: '/onboarding/encryption', pageBuilder: (_, s) => _instant(s, const EncryptionScreen())),
       GoRoute(path: '/drive', pageBuilder: (_, s) {
-        final role = ref.read(hostRoleProvider).role;
-        return _instant(s, role == HostRole.active
-            ? const DriveScreen()
-            : const ClientDriveScreen(key: ValueKey('drive-mine')));
+        // Same UI for host AND client. The host's tunnel loops back to
+        // itself (Mac → VPS → Mac), which costs a small roundtrip per
+        // refresh, but keeps every feature (folders / breadcrumbs /
+        // multi-select / bulk actions) in one place. The DriveScreen
+        // host-only view is kept around for the storage chart on the
+        // dashboard; the actual file management lives here.
+        return _instant(s, const ClientDriveScreen(key: ValueKey('drive-mine')));
       }),
       GoRoute(path: '/drive/recent', pageBuilder: (_, s) =>
           _instant(s, const ClientDriveScreen(key: ValueKey('drive-recent'), filter: DriveFilter.recent))),
