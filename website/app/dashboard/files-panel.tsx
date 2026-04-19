@@ -755,6 +755,19 @@ export function FilesPanel({
           </ul>
         )}
 
+        {/* Click-catcher behind the per-row ⋯ menu. Sits above rows
+            (z-15) but below the menu itself (z-20) so an outside click
+            CLOSES the menu without ALSO triggering the row's onClick
+            (which would open the file preview). */}
+        {openMenu && (
+          <div
+            className="fixed inset-0 z-[15]"
+            onClick={() => setOpenMenu(null)}
+            onContextMenu={() => setOpenMenu(null)}
+            aria-hidden="true"
+          />
+        )}
+
         {/* Lazy-load sentinel — when this scrolls into view, the next
             12 files render. Shown only when there are more to load. */}
         {hasMore && (
