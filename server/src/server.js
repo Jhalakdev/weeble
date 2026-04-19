@@ -52,7 +52,14 @@ await app.register(rateLimit, {
   skip: (req) => req.url?.startsWith('/v1/relay/') === true || req.url?.startsWith('/v1/tunnel/') === true,
 });
 await app.register(websocket, {
-  options: { maxPayload: 16 * 1024 * 1024 }, // 16 MB per WS frame
+  // 64 MB ceiling per WS frame. We were silently dropping any single
+  // frame > 16 MB before — which manifested as "phone-uploaded photo
+  // shows in list but won't download". The host now also chunks
+  // download responses into ≤4 MB frames (see host_tunnel
+  // _sendResponse) so even files much larger than this ceiling
+  // still flow correctly. The 64 MB is just headroom for any
+  // legacy callers + permessage-deflate inflation.
+  options: { maxPayload: 64 * 1024 * 1024 },
 });
 
 app.decorate('requireAuth', requireAuth);

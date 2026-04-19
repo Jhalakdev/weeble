@@ -425,12 +425,32 @@ class HostTunnel {
     }
   }
 
+  // Max bytes per outgoing binary frame. Must stay under the VPS
+  // @fastify/websocket maxPayload (currently 64 MB) — and well under,
+  // because permessage-deflate inflates some payloads. 4 MB strikes a
+  // good balance: keeps memory pressure low on the VPS, fragments
+  // large media into manageable chunks, and matches the natural
+  // network MTU economics.
+  static const int _wsChunkBytes = 4 * 1024 * 1024;
+
   void _sendResponse(String id, int status, Map<String, String> headers, List<int> body) {
     _send(jsonEncode({'type': 'res', 'id': id, 'status': status, 'headers': headers, 'hasBody': body.isNotEmpty}));
-    if (body.isNotEmpty) {
-      _send(Uint8List.fromList(body));
-      _send(jsonEncode({'type': 'res-end', 'id': id}));
+    if (body.isEmpty) return;
+    // Chunk body into <maxPayload binary frames. tunnel_hub.js on the
+    // VPS already concatenates multiple body frames between `res` and
+    // `res-end` for the same id, so this is purely a payload-size
+    // safety net. Without it, downloads of files > 16 MB silently
+    // failed because one giant frame exceeded the WS payload ceiling.
+    final bytes = body is Uint8List ? body : Uint8List.fromList(body);
+    if (bytes.length <= _wsChunkBytes) {
+      _send(bytes);
+    } else {
+      for (var off = 0; off < bytes.length; off += _wsChunkBytes) {
+        final end = (off + _wsChunkBytes < bytes.length) ? off + _wsChunkBytes : bytes.length;
+        _send(Uint8List.sublistView(bytes, off, end));
+      }
     }
+    _send(jsonEncode({'type': 'res-end', 'id': id}));
   }
 
   // Pulls the next binary frame from the queue, or installs a one-shot
