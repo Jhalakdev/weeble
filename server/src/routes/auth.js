@@ -182,7 +182,20 @@ export default async function authRoutes(app) {
       deviceId: null,
       plan: account.plan,
     });
-    return { token: jwt, account_id: account.id, plan: account.plan };
+    // Pairing = a full sign-in. Issue a refresh token too so the new
+    // device stays logged in for 90 days like a normal login.
+    const refresh = await mintRefreshToken(db, {
+      accountId: account.id, deviceId: null,
+      userAgent: req.headers['user-agent']?.slice(0, 200) ?? null,
+      ip: req.ip ?? null,
+    });
+    return {
+      token: jwt,
+      access_token: jwt,
+      refresh_token: refresh,
+      account_id: account.id,
+      plan: account.plan,
+    };
   });
 
 }

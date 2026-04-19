@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { QrCode } from 'lucide-react';
+import { QRScanner } from '@/components/QRScanner';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,6 +12,32 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  // QR sign-in: scan the QR from the Weeber app's "Pair with QR"
+  // screen on the user's Mac. Token is single-use + expires in 60 s.
+  async function onScan(token: string) {
+    setScanning(false);
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error === 'invalid_or_expired' ? 'QR expired. Ask your computer for a new one.' : 'Pairing failed.');
+        return;
+      }
+      router.push('/dashboard');
+    } catch {
+      setError('Network error while pairing.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -73,12 +101,34 @@ export default function LoginPage() {
         </button>
       </form>
 
+      {/* Divider + QR sign-in. The Mac / Windows / Linux Weeber app
+          has a "Pair with QR" screen that shows a scannable code. Point
+          this phone's camera at that screen and the session hops over. */}
+      <div className="flex items-center gap-3 my-6 text-[11px] text-slate-400 uppercase tracking-wider">
+        <div className="flex-1 h-px bg-slate-200" />
+        or
+        <div className="flex-1 h-px bg-slate-200" />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setScanning(true)}
+        disabled={loading}
+        className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+      >
+        <QrCode size={16} /> Scan QR shown on your computer
+      </button>
+
       <p className="mt-6 text-sm text-slate-600 text-center">
         Don&apos;t have an account?{' '}
         <Link href="/signup" className="underline">
           Sign up
         </Link>
       </p>
+
+      {scanning && (
+        <QRScanner onScan={onScan} onClose={() => setScanning(false)} />
+      )}
     </div>
   );
 }

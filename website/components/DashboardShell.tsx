@@ -6,9 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   LayoutGrid, FolderOpen, Download, DollarSign, Cloud,
   Bell, Moon, Sun, Settings, Search, Plus, LogOut, User,
-  QrCode, X,
 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
 import { HostStatusPill } from './HostStatusPill';
 import { LiveStorageCard } from './LiveStorageCard';
 import { MobileNav } from './MobileNav';
@@ -172,7 +170,7 @@ function TopBar({ isDark, onToggleTheme, plan }: { isDark: boolean; onToggleThem
         </IconBtn>
         <IconBtn title="Notifications" className="hidden md:flex"><Bell size={18} /></IconBtn>
         <IconBtn title="Settings" className="hidden md:flex"><Settings size={18} /></IconBtn>
-        <PairQrButton />
+        <div className="ml-1 w-9 h-9 rounded-full bg-[color:var(--accent)] flex items-center justify-center text-white font-semibold text-sm">W</div>
       </div>
     </header>
   );
@@ -201,88 +199,6 @@ function SearchInput() {
         className="w-full h-10 bg-[color:var(--body)] rounded-full pl-10 pr-4 text-[13px] placeholder:text-[color:var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[color:var(--accent)]"
       />
     </form>
-  );
-}
-
-// Avatar button — opens a QR modal so the phone can scan to pair
-// without typing email/password again. The QR encodes a one-time
-// pairing token minted by /api/pair (proxies /v1/auth/pairing/create).
-function PairQrButton() {
-  const [open, setOpen] = useState(false);
-  const [pairingToken, setPairingToken] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function mint() {
-    setLoading(true); setError(null); setPairingToken(null);
-    try {
-      const r = await fetch('/api/pair', { method: 'POST' });
-      if (!r.ok) throw new Error(`${r.status}`);
-      const body = await r.json();
-      setPairingToken(body.token);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function openModal() {
-    setOpen(true);
-    mint();
-  }
-
-  return (
-    <>
-      <button
-        onClick={openModal}
-        title="Show pairing QR"
-        aria-label="Show pairing QR"
-        className="ml-1 w-9 h-9 rounded-full bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] flex items-center justify-center text-white shadow-sm transition active:scale-95"
-      >
-        <QrCode size={16} />
-      </button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setOpen(false)} role="dialog" aria-modal="true">
-          <div className="w-full max-w-sm rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-[15px] font-bold tracking-tight">Pair a phone</h3>
-                <p className="text-[11px] text-[color:var(--text-muted)] mt-0.5">Scan from the Weeber app to sign in.</p>
-              </div>
-              <button onClick={() => setOpen(false)} className="text-[color:var(--text-muted)] hover:text-[color:var(--text)] p-1" aria-label="Close"><X size={18} /></button>
-            </div>
-            <div className="bg-white rounded-xl p-6 flex items-center justify-center min-h-[280px]">
-              {loading && <div className="w-10 h-10 rounded-full border-2 border-[color:var(--border)] border-t-[color:var(--accent)] animate-spin" />}
-              {error && <div className="text-[12px] text-red-600 text-center">Could not generate pairing code: {error}</div>}
-              {pairingToken && (
-                <QRCodeSVG
-                  value={pairingToken}
-                  size={240}
-                  level="M"
-                  bgColor="#ffffff"
-                  fgColor="#0a0a0a"
-                  marginSize={1}
-                />
-              )}
-            </div>
-            <div className="mt-4 space-y-2">
-              <p className="text-[11px] text-[color:var(--text-muted)] leading-relaxed text-center">
-                Open Weeber on your phone → <span className="font-semibold text-[color:var(--text)]">Pair with QR</span> → point at this code.
-                The link is single-use and expires in a few minutes.
-              </p>
-              <button
-                onClick={mint}
-                disabled={loading}
-                className="w-full text-[12px] font-medium text-[color:var(--accent)] hover:underline disabled:opacity-50"
-              >
-                Generate a new code
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
 
