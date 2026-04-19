@@ -145,6 +145,30 @@ class FileIndex {
     await _db.update('files', {'name': newName}, where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Move a file or folder under a new parent. parent_id may be null
+  /// (root) or another folder's id. Caller must validate that the new
+  /// parent isn't the entry itself or one of its descendants.
+  Future<void> updateParent(String id, String? parentId) async {
+    await _db.update('files', {'parent_id': parentId}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Walks up parent_id chain and returns the breadcrumb trail (root-first).
+  /// Includes the entry itself if [includeSelf] is true. Stops at root or
+  /// after [maxDepth] hops to guard against any pathological cycle.
+  Future<List<FileEntry>> ancestors(String? id, {bool includeSelf = false, int maxDepth = 32}) async {
+    if (id == null) return const [];
+    final trail = <FileEntry>[];
+    String? cursor = id;
+    for (var i = 0; i < maxDepth && cursor != null; i++) {
+      final e = await get(cursor);
+      if (e == null) break;
+      trail.add(e);
+      cursor = e.parentId;
+    }
+    if (!includeSelf && trail.isNotEmpty) trail.removeAt(0);
+    return trail.reversed.toList();
+  }
+
   /// Soft-delete: marks [id] as deleted at the current time. Hard-delete of
   /// the underlying blob happens elsewhere.
   Future<void> softDelete(String id, {required int at}) async {

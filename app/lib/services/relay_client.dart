@@ -34,10 +34,13 @@ class RelayClient {
     }
   }
 
-  /// List live files. If [includeDeleted] is true, returns the trash
-  /// (only soft-deleted entries) instead.
-  Future<List<RelayFile>> listFiles({bool includeDeleted = false}) async {
-    final qs = includeDeleted ? '?include_deleted=true' : '';
+  /// List files in a folder. parent=null/empty = root. include_deleted
+  /// returns the flat trash view across all folders.
+  Future<RelayListResult> listFiles({bool includeDeleted = false, String? parent}) async {
+    final qp = <String, String>{};
+    if (includeDeleted) qp['include_deleted'] = 'true';
+    if (parent != null && parent.isNotEmpty) qp['parent'] = parent;
+    final qs = qp.isEmpty ? '' : '?${Uri(queryParameters: qp).query}';
     final res = await http.get(
       Uri.parse('$_base/v1/relay/files$qs'),
       headers: {'Authorization': 'Bearer $token'},
@@ -46,8 +49,43 @@ class RelayClient {
       throw RelayException(res.statusCode, res.body);
     }
     final j = jsonDecode(res.body) as Map<String, dynamic>;
-    final files = (j['files'] as List? ?? []).cast<Map<String, dynamic>>();
-    return files.map(RelayFile.fromMap).toList();
+    final files = (j['files'] as List? ?? []).cast<Map<String, dynamic>>().map(RelayFile.fromMap).toList();
+    final path = (j['path'] as List? ?? [])
+        .cast<Map<String, dynamic>>()
+        .map((m) => RelayCrumb(id: m['id'] as String, name: m['name'] as String))
+        .toList();
+    return RelayListResult(files: files, path: path);
+  }
+
+  Future<RelayFile> createFolder({required String name, String? parentId}) async {
+    final res = await http.post(
+      Uri.parse('$_base/v1/relay/folders'),
+      headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name, if (parentId != null && parentId.isNotEmpty) 'parent_id': parentId}),
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) throw RelayException(res.statusCode, res.body);
+    return RelayFile.fromMap(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  Future<void> bulkAction({required String action, required List<String> ids, String? parentId}) async {
+    final res = await http.post(
+      Uri.parse('$_base/v1/relay/files/bulk'),
+      headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'action': action, 'ids': ids,
+        if (parentId != null) 'parent_id': parentId,
+      }),
+    ).timeout(const Duration(seconds: 30));
+    if (res.statusCode != 200) throw RelayException(res.statusCode, res.body);
+  }
+
+  Future<void> copyFileTo({required String id, String? parentId}) async {
+    final res = await http.post(
+      Uri.parse('$_base/v1/relay/files/${Uri.encodeComponent(id)}/copy'),
+      headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      body: jsonEncode({if (parentId != null) 'parent_id': parentId}),
+    ).timeout(const Duration(minutes: 5));
+    if (res.statusCode != 200) throw RelayException(res.statusCode, res.body);
   }
 
   /// Restore a soft-deleted file from the trash.
@@ -90,8 +128,10 @@ class RelayClient {
     required String mime,
     required Uint8List bytes,
     required void Function(int sent, int total) onProgress,
+    String? parentId,
   }) async {
-    final uri = Uri.parse('$_base/v1/relay/upload?name=${Uri.encodeQueryComponent(name)}&mime=${Uri.encodeQueryComponent(mime)}');
+    final parent = (parentId != null && parentId.isNotEmpty) ? '&parent=${Uri.encodeQueryComponent(parentId)}' : '';
+    final uri = Uri.parse('$_base/v1/relay/upload?name=${Uri.encodeQueryComponent(name)}&mime=${Uri.encodeQueryComponent(mime)}$parent');
     final req = http.StreamedRequest('POST', uri);
     req.headers['Authorization'] = 'Bearer $token';
     req.headers['Content-Type'] = 'application/octet-stream';
@@ -148,12 +188,15 @@ class RelayStats {
 }
 
 class RelayFile {
-  RelayFile({required this.id, required this.name, required this.size, required this.mime, required this.createdAt});
+  RelayFile({required this.id, required this.name, required this.size, required this.mime, required this.createdAt, this.parentId});
   final String id;
   final String name;
   final int size;
   final String mime;
   final int createdAt;
+  final String? parentId;
+
+  bool get isFolder => mime == 'inode/directory';
 
   factory RelayFile.fromMap(Map<String, dynamic> m) => RelayFile(
         id: m['id'] as String,
@@ -161,7 +204,20 @@ class RelayFile {
         size: (m['size'] as int?) ?? 0,
         mime: (m['mime'] as String?) ?? 'application/octet-stream',
         createdAt: (m['created_at'] as int?) ?? 0,
+        parentId: m['parent_id'] as String?,
       );
+}
+
+class RelayCrumb {
+  RelayCrumb({required this.id, required this.name});
+  final String id;
+  final String name;
+}
+
+class RelayListResult {
+  RelayListResult({required this.files, required this.path});
+  final List<RelayFile> files;
+  final List<RelayCrumb> path;
 }
 
 class RelayException implements Exception {

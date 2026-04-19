@@ -54,15 +54,19 @@ export default async function relayRoutes(app) {
     }
   });
 
-  // List files on the user's host. Optional ?include_deleted=true returns
-  // soft-deleted (trash) entries instead of live ones.
+  // List files on the user's host.
+  // Query: ?include_deleted=true (trash, flat) | ?parent=<folderId> (folder)
   app.get('/v1/relay/files', {
     preHandler: [app.requireAuth, app.requireActiveSubscription],
   }, async (req, reply) => {
     const conn = tunnelHub.get(req.auth.accountId);
     if (!conn) return reply.code(503).send({ error: 'host_offline' });
     const includeDeleted = req.query.include_deleted === 'true' || req.query.include_deleted === '1';
-    const path = includeDeleted ? '/files?include_deleted=true' : '/files';
+    const parent = typeof req.query.parent === 'string' ? req.query.parent : '';
+    const qs = new URLSearchParams();
+    if (includeDeleted) qs.set('include_deleted', 'true');
+    if (parent) qs.set('parent', parent);
+    const path = qs.toString() ? `/files?${qs.toString()}` : '/files';
     try {
       const res = await conn.request({ method: 'GET', path });
       const body = await readAll(res.bodyStream);
@@ -72,6 +76,84 @@ export default async function relayRoutes(app) {
     } catch (e) {
       req.log.error({ err: e }, 'tunnel list failed');
       return reply.code(502).send({ error: 'list_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Create a new folder. Body: { name, parent_id? } (parent_id absent = root)
+  app.post('/v1/relay/folders', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+    schema: {
+      body: { type: 'object', required: ['name'], properties: {
+        name: { type: 'string', minLength: 1, maxLength: 200 },
+        parent_id: { type: 'string', maxLength: 64 },
+      }},
+    },
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({
+        method: 'POST', path: '/folders',
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(JSON.stringify(req.body)),
+      });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      return reply.code(502).send({ error: 'create_folder_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Copy a file. Body: { parent_id?: <id|null> } — defaults to source's folder.
+  app.post('/v1/relay/files/:id/copy', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({
+        method: 'POST',
+        path: `/files/${encodeURIComponent(req.params.id)}/copy`,
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(JSON.stringify(req.body || {})),
+        timeoutMs: 5 * 60 * 1000,
+      });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      return reply.code(502).send({ error: 'copy_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Bulk action: { action: 'delete'|'move'|'restore', ids: [...], parent_id? }
+  app.post('/v1/relay/files/bulk', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+    schema: {
+      body: { type: 'object', required: ['action', 'ids'], properties: {
+        action: { type: 'string', enum: ['delete', 'move', 'restore'] },
+        ids: { type: 'array', items: { type: 'string' }, maxItems: 1000 },
+        parent_id: { type: 'string', maxLength: 64 },
+      }},
+    },
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({
+        method: 'POST', path: '/files/bulk',
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(JSON.stringify(req.body)),
+      });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      return reply.code(502).send({ error: 'bulk_failed', detail: String(e.message || e) });
     }
   });
 
@@ -175,6 +257,7 @@ export default async function relayRoutes(app) {
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 400 },
           mime: { type: 'string', maxLength: 100 },
+          parent: { type: 'string', maxLength: 64 },
         },
       },
     },
@@ -198,6 +281,7 @@ export default async function relayRoutes(app) {
         headers: {
           'x-file-name': encodeURIComponent(req.query.name),
           'x-file-mime': req.query.mime,
+          'x-parent-id': req.query.parent || '',
           'content-type': 'application/octet-stream',
         },
         body: bodyBuf,

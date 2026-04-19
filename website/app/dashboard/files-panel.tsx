@@ -6,12 +6,16 @@ import {
   Upload, Download, FileText, CloudOff, RefreshCw, File, Trash2, X,
   Image as ImageIcon, Music, Film, FileCode, Archive, FileSpreadsheet,
   Plus, LayoutGrid, List as ListIcon, MoreVertical, Star,
-  Pencil, Info, Filter, Search,
+  Pencil, Info, Filter, Search, Folder as FolderIcon, FolderPlus,
+  ChevronRight, Home, Move, Copy as CopyIcon, CheckSquare,
 } from 'lucide-react';
 import { LiveStorageCard } from '@/components/LiveStorageCard';
 
-type FileItem = { id: string; name: string; size: number; mime: string; created_at: number };
+type FileItem = { id: string; name: string; size: number; mime: string; created_at: number; parent_id?: string | null };
+type Crumb = { id: string; name: string };
 type Stats = { used_bytes: number; allocated_bytes: number; file_count: number };
+const FOLDER_MIME = 'inode/directory';
+function isFolder(f: FileItem) { return f.mime === FOLDER_MIME; }
 type TypeKind = 'all' | 'images' | 'videos' | 'audio' | 'documents' | 'archives' | 'other';
 type DateRange = 'all' | 'today' | 'week' | 'month' | 'year';
 
@@ -86,6 +90,17 @@ export function FilesPanel({
   const [dateFilter, setDateFilter] = useState<DateRange>('all');
   const [dragOver, setDragOver] = useState(false);
   const [localQuery, setLocalQuery] = useState('');
+  // Folder navigation: currentFolder is the id of the folder we're inside
+  // (null/empty = root). path is the breadcrumb chain from server.
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [path, setPath] = useState<Crumb[]>([]);
+  // Multi-select. selected.size > 0 reveals the bulk action bar.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Modals for folder operations.
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [movePicker, setMovePicker] = useState<{ ids: string[] } | null>(null);
+  const [dragRowId, setDragRowId] = useState<string | null>(null);
+  const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartY = useRef<number | null>(null);
@@ -101,10 +116,12 @@ export function FilesPanel({
     if (!silent) setBusy(true);
     setError(null);
     try {
-      const r = await fetch('/api/files', { cache: 'no-store' });
+      const qs = currentFolder ? `?parent=${encodeURIComponent(currentFolder)}` : '';
+      const r = await fetch(`/api/files${qs}`, { cache: 'no-store' });
       if (!r.ok) throw new Error(`${r.status}`);
       const body = await r.json();
       setFiles(body.files ?? []);
+      setPath(body.path ?? []);
       setOnline(body.host_online ?? false);
       setReachable(body.reachable ?? true);
       setStats(body.stats ?? null);
@@ -113,14 +130,17 @@ export function FilesPanel({
     } finally {
       if (!silent) setBusy(false);
     }
-  }, []);
+  }, [currentFolder]);
 
-  // Initial stats fetch + auto-poll for cross-device updates.
+  // Refetch on folder change + auto-poll inside the current folder.
   useEffect(() => {
     refresh(true);
     const id = setInterval(() => refresh(true), POLL_MS);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // Clear selection when changing folders.
+  useEffect(() => { setSelected(new Set()); }, [currentFolder]);
 
   // View preference + favorites: persisted in localStorage.
   useEffect(() => {
@@ -141,6 +161,102 @@ export function FilesPanel({
       return next;
     });
   }
+
+  // ---- Folder / move / copy / bulk action handlers ----
+
+  async function createFolder(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) { setShowNewFolder(false); return; }
+    setBusy(true); setError(null);
+    try {
+      const r = await fetch('/api/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed, parent_id: currentFolder ?? '' }),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      await refresh(true);
+    } catch (e) {
+      setError(`Could not create folder (${e instanceof Error ? e.message : 'error'}).`);
+    } finally {
+      setBusy(false); setShowNewFolder(false);
+    }
+  }
+
+  function enterFolder(folder: FileItem) {
+    setCurrentFolder(folder.id);
+  }
+
+  function navigateTo(folderId: string | null) {
+    setCurrentFolder(folderId);
+  }
+
+  async function moveFiles(ids: string[], targetParentId: string | null) {
+    setBusy(true); setError(null);
+    try {
+      const r = await fetch('/api/files/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'move', ids, parent_id: targetParentId ?? '' }),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      setSelected(new Set());
+      setMovePicker(null);
+      await refresh(true);
+    } catch (e) {
+      setError(`Move failed (${e instanceof Error ? e.message : 'error'}).`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyFile(file: FileItem) {
+    setBusy(true); setError(null);
+    try {
+      const r = await fetch(`/api/files/${encodeURIComponent(file.id)}/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      await refresh(true);
+    } catch (e) {
+      setError(`Copy failed (${e instanceof Error ? e.message : 'error'}).`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bulkDelete(ids: string[]) {
+    setBusy(true); setError(null);
+    const before = files;
+    setFiles(files.filter((x) => !ids.includes(x.id)));
+    setSelected(new Set());
+    try {
+      const r = await fetch('/api/files/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', ids }),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+    } catch (e) {
+      setFiles(before);
+      setError(`Bulk delete failed (${e instanceof Error ? e.message : 'error'}).`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() { setSelected(new Set(files.map((f) => f.id))); }
+  function clearSelection() { setSelected(new Set()); }
 
   async function renameFile(file: FileItem, newName: string) {
     if (!newName.trim() || newName === file.name) { setRenameTarget(null); return; }
@@ -193,9 +309,10 @@ export function FilesPanel({
       const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setUploads((prev) => [...prev, { id: jobId, name: f.name, size: f.size, uploaded: 0, status: 'uploading' }]);
       const xhr = new XMLHttpRequest();
+      const parentParam = currentFolder ? `&parent=${encodeURIComponent(currentFolder)}` : '';
       xhr.open(
         'POST',
-        `/api/files?name=${encodeURIComponent(f.name)}&mime=${encodeURIComponent(f.type || 'application/octet-stream')}`,
+        `/api/files?name=${encodeURIComponent(f.name)}&mime=${encodeURIComponent(f.type || 'application/octet-stream')}${parentParam}`,
       );
       xhr.upload.onprogress = (ev) => {
         if (!ev.lengthComputable) return;
@@ -300,16 +417,21 @@ export function FilesPanel({
     };
   }, [pullDist, busy, refresh]);
 
-  // Apply search + type + date filters in order. useMemo to avoid
-  // re-filtering the entire list on every keystroke unless the inputs
-  // actually changed.
+  // Apply search + type + date filters; folders ALWAYS come first, then
+  // files, both sorted alphabetically (Google Drive convention). Folders
+  // ignore the type filter since they aren't typed.
   const visibleFiles = useMemo(() => {
     const cutoff = dateCutoff(dateFilter);
-    return files
+    const filtered = files
       .filter((f) => !hidden.has(f.id))
-      .filter((f) => typeFilter === 'all' || matchesType(f, typeFilter))
+      .filter((f) => isFolder(f) || typeFilter === 'all' || matchesType(f, typeFilter))
       .filter((f) => cutoff === 0 || f.created_at >= cutoff)
       .filter((f) => query === '' || f.name.toLowerCase().includes(query));
+    return filtered.sort((a, b) => {
+      const fa = isFolder(a), fb = isFolder(b);
+      if (fa !== fb) return fa ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
   }, [files, hidden, typeFilter, dateFilter, query]);
 
   return (
@@ -354,11 +476,14 @@ export function FilesPanel({
           <LiveStorageCard variant="block" />
         </div>
 
+        {/* Breadcrumbs — Home / folder / sub-folder. Click any segment to jump. */}
+        <Breadcrumbs path={path} onHome={() => navigateTo(null)} onJump={(id) => navigateTo(id)} />
+
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-[15px] font-semibold">My files</h2>
+            <h2 className="text-[15px] font-semibold">{path.length === 0 ? 'My files' : path[path.length - 1].name}</h2>
             <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
-              {online ? `${visibleFiles.length} file${visibleFiles.length === 1 ? '' : 's'} on your computer` : 'Your storage is offline'}
+              {online ? `${visibleFiles.length} item${visibleFiles.length === 1 ? '' : 's'}` : 'Your storage is offline'}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -384,6 +509,14 @@ export function FilesPanel({
               aria-label="Refresh"
             >
               <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
+            </button>
+            <button
+              onClick={() => setShowNewFolder(true)}
+              disabled={!online}
+              className="inline-flex items-center gap-1.5 bg-[color:var(--body)] hover:bg-[color:var(--accent-muted)] text-[color:var(--text)] text-xs font-semibold px-3 py-2 rounded-lg disabled:opacity-50"
+              title="New folder"
+            >
+              <FolderPlus size={14} /> <span className="hidden sm:inline">New folder</span>
             </button>
             <button
               onClick={() => inputRef.current?.click()}
@@ -467,59 +600,119 @@ export function FilesPanel({
                 key={f.id}
                 file={f}
                 isFav={favorites.has(f.id)}
+                isFolder={isFolder(f)}
+                isSelected={selected.has(f.id)}
                 isMenuOpen={openMenu === f.id}
+                onSelect={() => toggleSelect(f.id)}
                 onMenuToggle={() => setOpenMenu(openMenu === f.id ? null : f.id)}
                 onMenuClose={() => setOpenMenu(null)}
+                onOpen={() => isFolder(f) ? enterFolder(f) : downloadFile(f)}
                 onDownload={() => downloadFile(f)}
                 onDelete={() => setDeleteTarget(f)}
                 onFavorite={() => toggleFavorite(f.id)}
                 onRename={() => setRenameTarget(f)}
                 onInfo={() => setInfoTarget(f)}
+                onMove={() => setMovePicker({ ids: [f.id] })}
+                onCopy={() => copyFile(f)}
               />
             ))}
           </div>
         ) : (
           <ul className="divide-y divide-[color:var(--border)]">
-            {visibleFiles.map((f) => (
-              <li key={f.id} className="group flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg hover:bg-[color:var(--accent-muted)]/40 transition">
-                <FilePreview mime={f.mime} name={f.name} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium truncate flex items-center gap-1.5">
-                    <span className="truncate">{f.name}</span>
-                    {favorites.has(f.id) && <Star size={11} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
-                  </div>
-                  <div className="text-[11px] text-[color:var(--text-muted)]">
-                    {formatBytes(f.size)} · uploaded {fmtDate(f.created_at)}
-                  </div>
-                </div>
-                <button
-                  onClick={() => toggleFavorite(f.id)}
-                  className={`p-2 rounded-lg ${favorites.has(f.id) ? 'text-amber-500' : 'text-[color:var(--text-muted)] hover:text-amber-500'} opacity-0 group-hover:opacity-100 transition`}
-                  title={favorites.has(f.id) ? 'Remove from Starred' : 'Add to Starred'}
-                  aria-label="Star"
+            {visibleFiles.map((f) => {
+              const folder = isFolder(f);
+              const isSel = selected.has(f.id);
+              const isDropTarget = folder && dropTargetFolderId === f.id && dragRowId !== null;
+              return (
+                <li
+                  key={f.id}
+                  draggable
+                  onDragStart={(e) => { setDragRowId(f.id); e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragEnd={() => { setDragRowId(null); setDropTargetFolderId(null); }}
+                  onDragOver={folder ? (e) => { e.preventDefault(); e.stopPropagation(); if (dragRowId && dragRowId !== f.id) setDropTargetFolderId(f.id); } : undefined}
+                  onDragLeave={folder ? () => setDropTargetFolderId(null) : undefined}
+                  onDrop={folder ? (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    setDropTargetFolderId(null);
+                    if (dragRowId && dragRowId !== f.id) {
+                      // If the dragged row is part of a multi-selection, move
+                      // them all; otherwise just the single row.
+                      const ids = selected.has(dragRowId) ? Array.from(selected) : [dragRowId];
+                      moveFiles(ids, f.id);
+                    }
+                    setDragRowId(null);
+                  } : undefined}
+                  className={`group flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg transition cursor-default ${
+                    isDropTarget ? 'bg-[color:var(--accent-muted)] ring-2 ring-[color:var(--accent)]'
+                    : isSel ? 'bg-[color:var(--accent-muted)]'
+                    : 'hover:bg-[color:var(--accent-muted)]/40'
+                  }`}
                 >
-                  <Star size={16} fill={favorites.has(f.id) ? 'currentColor' : 'none'} />
-                </button>
-                <button
-                  onClick={() => downloadFile(f)}
-                  className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--accent)]"
-                  title="Download"
-                  aria-label={`Download ${f.name}`}
-                >
-                  <Download size={16} />
-                </button>
-                <RowMenu
-                  isOpen={openMenu === f.id}
-                  onToggle={() => setOpenMenu(openMenu === f.id ? null : f.id)}
-                  onClose={() => setOpenMenu(null)}
-                  isFav={favorites.has(f.id)}
-                  onRename={() => setRenameTarget(f)}
-                  onInfo={() => setInfoTarget(f)}
-                  onFavorite={() => toggleFavorite(f.id)}
-                  onDelete={() => setDeleteTarget(f)}
-                />
-              </li>
-            ))}
+                  <input
+                    type="checkbox"
+                    checked={isSel}
+                    onChange={() => toggleSelect(f.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-4 h-4 accent-[color:var(--accent)] cursor-pointer"
+                    aria-label={`Select ${f.name}`}
+                  />
+                  <button
+                    onClick={() => folder ? enterFolder(f) : downloadFile(f)}
+                    className="flex-1 min-w-0 flex items-center gap-3 text-left"
+                  >
+                    {folder ? (
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: '#FEF3C7' }}>
+                        <FolderIcon size={18} className="text-amber-600" fill="#FDE68A" />
+                      </div>
+                    ) : (
+                      <FilePreview mime={f.mime} name={f.name} />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium truncate flex items-center gap-1.5">
+                        <span className="truncate">{f.name}</span>
+                        {favorites.has(f.id) && <Star size={11} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
+                      </div>
+                      <div className="text-[11px] text-[color:var(--text-muted)]">
+                        {folder ? `Folder · ${fmtDate(f.created_at)}` : `${formatBytes(f.size)} · uploaded ${fmtDate(f.created_at)}`}
+                      </div>
+                    </div>
+                  </button>
+                  {!folder && (
+                    <>
+                      <button
+                        onClick={() => toggleFavorite(f.id)}
+                        className={`p-2 rounded-lg ${favorites.has(f.id) ? 'text-amber-500' : 'text-[color:var(--text-muted)] hover:text-amber-500'} opacity-0 group-hover:opacity-100 transition`}
+                        title={favorites.has(f.id) ? 'Remove from Starred' : 'Add to Starred'}
+                        aria-label="Star"
+                      >
+                        <Star size={16} fill={favorites.has(f.id) ? 'currentColor' : 'none'} />
+                      </button>
+                      <button
+                        onClick={() => downloadFile(f)}
+                        className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--accent)]"
+                        title="Download"
+                        aria-label={`Download ${f.name}`}
+                      >
+                        <Download size={16} />
+                      </button>
+                    </>
+                  )}
+                  <RowMenu
+                    isOpen={openMenu === f.id}
+                    onToggle={() => setOpenMenu(openMenu === f.id ? null : f.id)}
+                    onClose={() => setOpenMenu(null)}
+                    isFav={favorites.has(f.id)}
+                    isFolder={folder}
+                    onRename={() => setRenameTarget(f)}
+                    onInfo={() => setInfoTarget(f)}
+                    onFavorite={() => toggleFavorite(f.id)}
+                    onDelete={() => setDeleteTarget(f)}
+                    onMove={() => setMovePicker({ ids: [f.id] })}
+                    onCopy={() => copyFile(f)}
+                  />
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -542,6 +735,29 @@ export function FilesPanel({
         )}
         {infoTarget && (
           <InfoModal file={infoTarget} onClose={() => setInfoTarget(null)} />
+        )}
+        {showNewFolder && (
+          <NewFolderModal busy={busy} onCancel={() => setShowNewFolder(false)} onCreate={createFolder} />
+        )}
+        {movePicker && (
+          <MoveToPicker
+            ids={movePicker.ids}
+            currentFolder={currentFolder}
+            onCancel={() => setMovePicker(null)}
+            onMove={(targetId) => moveFiles(movePicker.ids, targetId)}
+          />
+        )}
+
+        {/* Bulk action bar — shown when at least one file is selected. */}
+        {selected.size > 0 && (
+          <BulkActionBar
+            count={selected.size}
+            allCount={files.length}
+            onSelectAll={selectAll}
+            onClear={clearSelection}
+            onMove={() => setMovePicker({ ids: Array.from(selected) })}
+            onDelete={() => bulkDelete(Array.from(selected))}
+          />
         )}
       </section>
 
@@ -647,37 +863,56 @@ function ProgressRow({
 }
 
 function FileGridCard({
-  file, isFav, isMenuOpen, onMenuToggle, onMenuClose, onDownload, onDelete, onFavorite, onRename, onInfo,
+  file, isFav, isFolder: folder, isSelected, isMenuOpen,
+  onSelect, onMenuToggle, onMenuClose, onOpen, onDownload, onDelete, onFavorite, onRename, onInfo, onMove, onCopy,
 }: {
   file: FileItem;
   isFav: boolean;
+  isFolder: boolean;
+  isSelected: boolean;
   isMenuOpen: boolean;
+  onSelect: () => void;
   onMenuToggle: () => void;
   onMenuClose: () => void;
+  onOpen: () => void;
   onDownload: () => void;
   onDelete: () => void;
   onFavorite: () => void;
   onRename: () => void;
   onInfo: () => void;
+  onMove: () => void;
+  onCopy: () => void;
 }) {
   return (
     <div
-      className="group relative flex flex-col rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-hidden hover:shadow-md hover:border-[color:var(--accent)] transition cursor-pointer"
-      onClick={onDownload}
+      className={`group relative flex flex-col rounded-xl border bg-[color:var(--surface)] overflow-hidden transition cursor-pointer ${isSelected ? 'border-[color:var(--accent)] ring-2 ring-[color:var(--accent)]/40' : 'border-[color:var(--border)] hover:shadow-md hover:border-[color:var(--accent)]'}`}
+      onClick={onOpen}
       role="button"
       tabIndex={0}
-      aria-label={`Open ${file.name}`}
+      aria-label={folder ? `Open folder ${file.name}` : `Open ${file.name}`}
     >
       <div className="aspect-square flex items-center justify-center bg-[color:var(--body)]">
-        <div className="scale-150"><FilePreview mime={file.mime} name={file.name} /></div>
+        {folder ? (
+          <FolderIcon size={48} className="text-amber-500" fill="#FDE68A" />
+        ) : (
+          <div className="scale-150"><FilePreview mime={file.mime} name={file.name} /></div>
+        )}
       </div>
       <div className="p-3">
         <div className="flex items-center gap-1.5 mb-0.5">
           <div className="flex-1 min-w-0 text-[12px] font-medium truncate">{file.name}</div>
           {isFav && <Star size={11} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
         </div>
-        <div className="text-[10px] text-[color:var(--text-muted)]">{formatBytes(file.size)}</div>
+        <div className="text-[10px] text-[color:var(--text-muted)]">{folder ? 'Folder' : formatBytes(file.size)}</div>
       </div>
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={onSelect}
+        onClick={(e) => e.stopPropagation()}
+        className={`absolute top-2 left-2 w-4 h-4 accent-[color:var(--accent)] cursor-pointer ${isSelected ? '' : 'opacity-0 group-hover:opacity-100'} transition`}
+        aria-label={`Select ${file.name}`}
+      />
       <button
         onClick={(e) => { e.stopPropagation(); onMenuToggle(); }}
         className="absolute top-2 right-2 p-1.5 rounded-lg bg-[color:var(--surface)]/80 backdrop-blur text-[color:var(--text-muted)] hover:text-[color:var(--text)] opacity-0 group-hover:opacity-100 transition"
@@ -687,15 +922,23 @@ function FileGridCard({
       </button>
       {isMenuOpen && (
         <div
-          className="absolute top-10 right-2 z-20 w-44 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
+          className="absolute top-10 right-2 z-20 w-48 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
           onClick={(e) => e.stopPropagation()}
         >
-          <button onClick={() => { onDownload(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Download size={12} /> Download</button>
+          {!folder && (
+            <button onClick={() => { onDownload(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Download size={12} /> Download</button>
+          )}
           <button onClick={() => { onRename(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Pencil size={12} /> Rename</button>
-          <button onClick={() => { onFavorite(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
-            <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
-            {isFav ? 'Remove from Starred' : 'Add to Starred'}
-          </button>
+          <button onClick={() => { onMove(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Move size={12} /> Move to…</button>
+          {!folder && (
+            <button onClick={() => { onCopy(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><CopyIcon size={12} /> Make a copy</button>
+          )}
+          {!folder && (
+            <button onClick={() => { onFavorite(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
+              <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
+              {isFav ? 'Remove from Starred' : 'Add to Starred'}
+            </button>
+          )}
           <button onClick={() => { onInfo(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Info size={12} /> File info</button>
           <div className="my-1 border-t border-[color:var(--border)]" />
           <button onClick={() => { onDelete(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2"><Trash2 size={12} /> Delete</button>
@@ -706,16 +949,19 @@ function FileGridCard({
 }
 
 function RowMenu({
-  isOpen, onToggle, onClose, isFav, onRename, onInfo, onFavorite, onDelete,
+  isOpen, onToggle, onClose, isFav, isFolder: folder, onRename, onInfo, onFavorite, onDelete, onMove, onCopy,
 }: {
   isOpen: boolean;
   onToggle: () => void;
   onClose: () => void;
   isFav: boolean;
+  isFolder?: boolean;
   onRename: () => void;
   onInfo: () => void;
   onFavorite: () => void;
   onDelete: () => void;
+  onMove: () => void;
+  onCopy: () => void;
 }) {
   return (
     <div className="relative">
@@ -729,19 +975,184 @@ function RowMenu({
       </button>
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-1 z-20 w-44 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
+          className="absolute right-0 top-full mt-1 z-20 w-48 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
           onClick={(e) => e.stopPropagation()}
         >
           <button onClick={() => { onRename(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Pencil size={12} /> Rename</button>
-          <button onClick={() => { onFavorite(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
-            <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
-            {isFav ? 'Remove from Starred' : 'Add to Starred'}
-          </button>
+          <button onClick={() => { onMove(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Move size={12} /> Move to…</button>
+          {!folder && (
+            <button onClick={() => { onCopy(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><CopyIcon size={12} /> Make a copy</button>
+          )}
+          {!folder && (
+            <button onClick={() => { onFavorite(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
+              <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
+              {isFav ? 'Remove from Starred' : 'Add to Starred'}
+            </button>
+          )}
           <button onClick={() => { onInfo(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Info size={12} /> File info</button>
           <div className="my-1 border-t border-[color:var(--border)]" />
           <button onClick={() => { onDelete(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2"><Trash2 size={12} /> Delete</button>
         </div>
       )}
+    </div>
+  );
+}
+
+function Breadcrumbs({ path, onHome, onJump }: { path: Crumb[]; onHome: () => void; onJump: (id: string) => void }) {
+  if (path.length === 0) return null;
+  return (
+    <div className="mb-3 flex items-center gap-1 text-[13px] overflow-x-auto whitespace-nowrap pb-1">
+      <button onClick={onHome} className="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[color:var(--accent-muted)] text-[color:var(--text-muted)] hover:text-[color:var(--accent)]">
+        <Home size={13} /> My files
+      </button>
+      {path.map((c, i) => (
+        <span key={c.id} className="inline-flex items-center gap-1">
+          <ChevronRight size={12} className="text-[color:var(--text-muted)]" />
+          {i === path.length - 1 ? (
+            <span className="px-2 py-1 font-semibold text-[color:var(--text)]">{c.name}</span>
+          ) : (
+            <button onClick={() => onJump(c.id)} className="px-2 py-1 rounded-md hover:bg-[color:var(--accent-muted)] text-[color:var(--text-muted)] hover:text-[color:var(--accent)]">{c.name}</button>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function BulkActionBar({
+  count, allCount, onSelectAll, onClear, onMove, onDelete,
+}: {
+  count: number;
+  allCount: number;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onMove: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-full shadow-xl px-4 py-2 flex items-center gap-2">
+      <button onClick={onClear} className="p-1.5 rounded-full text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--text)]" aria-label="Clear selection">
+        <X size={14} />
+      </button>
+      <span className="text-[12px] font-medium text-[color:var(--text)] mr-2">{count} selected</span>
+      {count < allCount && (
+        <button onClick={onSelectAll} className="text-[11px] text-[color:var(--accent)] font-medium hover:underline mr-1">
+          Select all ({allCount})
+        </button>
+      )}
+      <div className="w-px h-5 bg-[color:var(--border)] mx-1" />
+      <button onClick={onMove} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]">
+        <Move size={13} /> Move
+      </button>
+      <button onClick={onDelete} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-red-50 text-red-600">
+        <Trash2 size={13} /> Delete
+      </button>
+    </div>
+  );
+}
+
+function NewFolderModal({ busy, onCancel, onCreate }: { busy: boolean; onCancel: () => void; onCreate: (name: string) => void }) {
+  const [name, setName] = useState('Untitled folder');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel} role="dialog" aria-modal="true">
+      <div className="w-full max-w-sm rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-[15px] font-semibold mb-3 flex items-center gap-2"><FolderPlus size={16} /> New folder</h3>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !busy) onCreate(name); }}
+          onFocus={(e) => e.target.select()}
+          className="w-full h-10 px-3 text-[13px] bg-[color:var(--body)] rounded-lg border border-transparent focus:border-[color:var(--accent)] focus:outline-none mb-4"
+        />
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} disabled={busy} className="px-4 py-2 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]">Cancel</button>
+          <button onClick={() => onCreate(name)} disabled={busy || !name.trim()} className="px-4 py-2 text-[12px] font-semibold bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] disabled:opacity-50 text-white rounded-lg">Create</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MoveToPicker({
+  ids, currentFolder, onCancel, onMove,
+}: {
+  ids: string[];
+  currentFolder: string | null;
+  onCancel: () => void;
+  onMove: (targetParentId: string | null) => void;
+}) {
+  // Browse the folder tree. Picker fetches children on demand. Disables
+  // any folder that's in `ids` (can't move a folder into itself).
+  const [browseId, setBrowseId] = useState<string | null>(null);
+  const [browsePath, setBrowsePath] = useState<Crumb[]>([]);
+  const [items, setItems] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const qs = browseId ? `?parent=${encodeURIComponent(browseId)}` : '';
+        const r = await fetch(`/api/files${qs}`, { cache: 'no-store' });
+        const body = await r.json();
+        if (!alive) return;
+        setItems((body.files ?? []).filter((x: FileItem) => isFolder(x)));
+        setBrowsePath(body.path ?? []);
+      } catch { /* ignore */ }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [browseId]);
+
+  const idsSet = new Set(ids);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel} role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-5 shadow-xl flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[15px] font-semibold flex items-center gap-2"><Move size={16} /> Move {ids.length} item{ids.length === 1 ? '' : 's'} to…</h3>
+          <button onClick={onCancel} className="text-[color:var(--text-muted)] hover:text-[color:var(--text)] p-1" aria-label="Close"><X size={16} /></button>
+        </div>
+        <Breadcrumbs path={browsePath} onHome={() => setBrowseId(null)} onJump={(id) => setBrowseId(id)} />
+        <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[color:var(--border)] bg-[color:var(--body)] p-1 mb-3">
+          {loading ? (
+            <div className="text-center py-8 text-[12px] text-[color:var(--text-muted)]">Loading…</div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-8 text-[12px] text-[color:var(--text-muted)]">No subfolders here. You can still move into this folder.</div>
+          ) : (
+            <ul>
+              {items.map((f) => {
+                const disabled = idsSet.has(f.id);
+                return (
+                  <li key={f.id}>
+                    <button
+                      onClick={() => !disabled && setBrowseId(f.id)}
+                      disabled={disabled}
+                      className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded-md text-[12.5px] ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-[color:var(--accent-muted)]'}`}
+                    >
+                      <FolderIcon size={14} className="text-amber-600" fill="#FDE68A" />
+                      <span className="flex-1 truncate">{f.name}</span>
+                      {!disabled && <ChevronRight size={12} className="text-[color:var(--text-muted)]" />}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+        <div className="flex justify-between items-center gap-2">
+          <button onClick={onCancel} className="px-3 py-2 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]">Cancel</button>
+          <button
+            onClick={() => onMove(browseId)}
+            disabled={browseId === currentFolder}
+            className="px-4 py-2 text-[12px] font-semibold bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] disabled:opacity-50 text-white rounded-lg"
+          >
+            Move here
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

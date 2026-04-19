@@ -68,10 +68,18 @@ export const api = {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => null),
 
-  relayFiles: (token: string) =>
-    request<{ files: Array<{ id: string; name: string; size: number; mime: string; created_at: number; parent_id: string | null }> }>('/v1/relay/files', {
+  relayFiles: (token: string, opts: { parent?: string; includeDeleted?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.includeDeleted) qs.set('include_deleted', 'true');
+    if (opts.parent) qs.set('parent', opts.parent);
+    const tail = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{
+      files: Array<{ id: string; name: string; size: number; mime: string; created_at: number; parent_id: string | null }>;
+      path?: Array<{ id: string; name: string }>;
+    }>(`/v1/relay/files${tail}`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => null),
+    }).catch(() => null);
+  },
 
   relayStats: (token: string) =>
     request<{ used_bytes: number; allocated_bytes: number; file_count: number }>('/v1/relay/stats', {

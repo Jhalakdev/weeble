@@ -207,14 +207,112 @@ class HostTunnel {
         return;
       }
       if (method == 'GET' && (path == '/files' || path.startsWith('/files?'))) {
-        // ?include_deleted=true returns the trash; otherwise live entries only.
+        // Query params:
+        //   include_deleted=true → trash view (across all folders)
+        //   parent=<id>           → list contents of folder <id>
+        //   parent=                (or absent + no include_deleted) → root
         final qIdx = path.indexOf('?');
-        final includeDeleted = qIdx >= 0 && Uri.splitQueryString(path.substring(qIdx + 1))['include_deleted'] == 'true';
-        final files = await runtime.index.list(includeDeleted: includeDeleted);
-        // For trash view, only return entries that have actually been deleted.
-        final filtered = includeDeleted ? files.where((f) => f.deletedAt != null).toList() : files;
-        final json = jsonEncode({'files': filtered.map((e) => e.toMap()).toList()});
+        final qs = qIdx >= 0 ? Uri.splitQueryString(path.substring(qIdx + 1)) : <String, String>{};
+        final includeDeleted = qs['include_deleted'] == 'true';
+        final parent = qs['parent'];
+        // For trash view ignore parent — flat list of every soft-deleted item.
+        final files = includeDeleted
+            ? (await runtime.index.list(includeDeleted: true)).where((f) => f.deletedAt != null).toList()
+            : await runtime.index.list(parentId: (parent == null || parent.isEmpty) ? null : parent);
+        // Ancestors for breadcrumbs (only meaningful when listing a folder).
+        final crumbs = (parent != null && parent.isNotEmpty)
+            ? await runtime.index.ancestors(parent, includeSelf: true)
+            : const <FileEntry>[];
+        final json = jsonEncode({
+          'files': files.map((e) => e.toMap()).toList(),
+          'path': crumbs.map((e) => {'id': e.id, 'name': e.name}).toList(),
+        });
         _sendResponse(id, 200, {'content-type': 'application/json'}, utf8.encode(json));
+        return;
+      }
+      if (method == 'POST' && path == '/folders' && bodyBytes != null) {
+        Map<String, dynamic> body;
+        try { body = jsonDecode(utf8.decode(bodyBytes)) as Map<String, dynamic>; }
+        catch (_) { _sendResponse(id, 400, {'content-type': 'application/json'}, utf8.encode(jsonEncode({'error': 'bad_json'}))); return; }
+        final name = (body['name'] as String?)?.trim() ?? '';
+        if (name.isEmpty) {
+          _sendResponse(id, 400, {'content-type': 'application/json'}, utf8.encode(jsonEncode({'error': 'name_required'})));
+          return;
+        }
+        final rawParent = body['parent_id'] as String?;
+        final parentId = (rawParent == null || rawParent.isEmpty) ? null : rawParent;
+        final newId = _ulid();
+        final entry = FileEntry(
+          id: newId, name: name, parentId: parentId, size: 0,
+          mime: 'inode/directory',
+          createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        );
+        await runtime.index.insert(entry);
+        _sendResponse(id, 200, {'content-type': 'application/json'},
+            utf8.encode(jsonEncode(entry.toMap())));
+        return;
+      }
+      if (method == 'POST' && path.startsWith('/files/') && path.endsWith('/copy') && bodyBytes != null) {
+        final fileId = Uri.decodeComponent(path.substring('/files/'.length, path.length - '/copy'.length));
+        Map<String, dynamic> body;
+        try { body = jsonDecode(utf8.decode(bodyBytes)) as Map<String, dynamic>; } catch (_) { body = {}; }
+        final src = await runtime.index.get(fileId);
+        if (src == null || src.deletedAt != null) {
+          _sendResponse(id, 404, {'content-type': 'application/json'}, utf8.encode(jsonEncode({'error': 'not_found'})));
+          return;
+        }
+        if (src.isFolder) {
+          // Folder copy isn't supported in v1 — would need recursive walk.
+          _sendResponse(id, 400, {'content-type': 'application/json'}, utf8.encode(jsonEncode({'error': 'folder_copy_unsupported'})));
+          return;
+        }
+        final rawParent = body['parent_id'] as String?;
+        final destParent = rawParent == null ? src.parentId : (rawParent.isEmpty ? null : rawParent);
+        final bytes = await runtime.storage.read(fileId);
+        final newId = _ulid();
+        await runtime.storage.write(newId, bytes);
+        await runtime.index.insert(FileEntry(
+          id: newId,
+          name: '${src.name} (copy)',
+          parentId: destParent,
+          size: src.size,
+          mime: src.mime,
+          createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        ));
+        _sendResponse(id, 200, {'content-type': 'application/json'},
+            utf8.encode(jsonEncode({'id': newId})));
+        return;
+      }
+      if (method == 'POST' && path == '/files/bulk' && bodyBytes != null) {
+        // Body: { action: 'delete'|'move'|'restore', ids: [...], parent_id?: <id|null> }
+        Map<String, dynamic> body;
+        try { body = jsonDecode(utf8.decode(bodyBytes)) as Map<String, dynamic>; }
+        catch (_) { _sendResponse(id, 400, {'content-type': 'application/json'}, utf8.encode(jsonEncode({'error': 'bad_json'}))); return; }
+        final action = body['action'] as String?;
+        final ids = (body['ids'] as List?)?.cast<String>() ?? const <String>[];
+        if (action == null || ids.isEmpty) {
+          _sendResponse(id, 400, {'content-type': 'application/json'}, utf8.encode(jsonEncode({'error': 'bad_request'})));
+          return;
+        }
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        int ok = 0;
+        for (final fid in ids) {
+          try {
+            switch (action) {
+              case 'delete':
+                await runtime.index.softDelete(fid, at: now); ok++; break;
+              case 'restore':
+                await runtime.index.restore(fid); ok++; break;
+              case 'move':
+                final raw = body['parent_id'] as String?;
+                await runtime.index.updateParent(fid, (raw == null || raw.isEmpty) ? null : raw); ok++;
+                break;
+              default: break;
+            }
+          } catch (_) { /* skip individual failures, keep going */ }
+        }
+        _sendResponse(id, 200, {'content-type': 'application/json'},
+            utf8.encode(jsonEncode({'ok': true, 'count': ok})));
         return;
       }
       if (method == 'PATCH' && path.startsWith('/files/') && bodyBytes != null) {
@@ -235,6 +333,10 @@ class HostTunnel {
         final newName = (patch['name'] as String?)?.trim();
         if (newName != null && newName.isNotEmpty) {
           await runtime.index.rename(fileId, newName);
+        }
+        if (patch.containsKey('parent_id')) {
+          final raw = patch['parent_id'] as String?;
+          await runtime.index.updateParent(fileId, (raw == null || raw.isEmpty) ? null : raw);
         }
         final updated = await runtime.index.get(fileId);
         _sendResponse(id, 200, {'content-type': 'application/json'},
@@ -267,6 +369,10 @@ class HostTunnel {
       if (method == 'POST' && path == '/files') {
         final fileName = Uri.decodeComponent(headers['x-file-name'] ?? 'untitled');
         final mime = headers['x-file-mime'] ?? 'application/octet-stream';
+        // x-parent-id (optional) — drop the upload into a specific folder.
+        // Empty / missing = root.
+        final rawParent = headers['x-parent-id'] as String?;
+        final parentId = (rawParent == null || rawParent.isEmpty) ? null : rawParent;
         if (bodyBytes == null) {
           _sendResponse(id, 400, {'content-type': 'application/json'},
               utf8.encode(jsonEncode({'error': 'no_body'})));
@@ -277,13 +383,13 @@ class HostTunnel {
         await runtime.index.insert(FileEntry(
           id: newId,
           name: fileName,
-          parentId: null,
+          parentId: parentId,
           size: bodyBytes.length,
           mime: mime,
           createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
         ));
         _sendResponse(id, 200, {'content-type': 'application/json'},
-            utf8.encode(jsonEncode({'id': newId, 'name': fileName, 'size': bodyBytes.length, 'mime': mime})));
+            utf8.encode(jsonEncode({'id': newId, 'name': fileName, 'size': bodyBytes.length, 'mime': mime, 'parent_id': parentId})));
         return;
       }
       if (method == 'DELETE' && path.startsWith('/files/')) {
