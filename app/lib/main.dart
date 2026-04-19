@@ -95,15 +95,13 @@ GoRouter _buildRouter(WidgetRef ref) {
         final role = ref.read(hostRoleProvider).role;
         return role == HostRole.active ? const DriveScreen() : const ClientDriveScreen();
       }),
-      // Filtered views — same screens, with a filter sub-route.
-      // For now Recent/Favorites/Trash all render the standard drive
-      // screen; the host already filters by `deleted_at` in FileIndex
-      // (Trash needs the soft-deleted view), and Recent is sorted by
-      // created_at desc. Wired to make the sidebar items go somewhere
-      // real instead of bouncing back to /drive.
-      GoRoute(path: '/drive/recent', builder: (_, _) => const ClientDriveScreen()),
-      GoRoute(path: '/drive/favorites', builder: (_, _) => const ClientDriveScreen()),
-      GoRoute(path: '/drive/trash', builder: (_, _) => const ClientDriveScreen()),
+      // Filtered views — Recent/Favorites/Trash all render through
+      // ClientDriveScreen with a filter param. The Trash route fetches
+      // soft-deleted entries from the host; Favorites reads the local
+      // FavoritesService; Recent sorts by created_at desc.
+      GoRoute(path: '/drive/recent', builder: (_, _) => const ClientDriveScreen(filter: DriveFilter.recent)),
+      GoRoute(path: '/drive/favorites', builder: (_, _) => const ClientDriveScreen(filter: DriveFilter.favorites)),
+      GoRoute(path: '/drive/trash', builder: (_, _) => const ClientDriveScreen(filter: DriveFilter.trash)),
       GoRoute(path: '/devices', builder: (_, _) => const DevicesScreen()),
       GoRoute(path: '/account', builder: (_, _) => const AccountScreen()),
       GoRoute(path: '/pair/host', builder: (_, _) => const HostQrScreen()),

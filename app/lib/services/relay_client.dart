@@ -34,9 +34,12 @@ class RelayClient {
     }
   }
 
-  Future<List<RelayFile>> listFiles() async {
+  /// List live files. If [includeDeleted] is true, returns the trash
+  /// (only soft-deleted entries) instead.
+  Future<List<RelayFile>> listFiles({bool includeDeleted = false}) async {
+    final qs = includeDeleted ? '?include_deleted=true' : '';
     final res = await http.get(
-      Uri.parse('$_base/v1/relay/files'),
+      Uri.parse('$_base/v1/relay/files$qs'),
       headers: {'Authorization': 'Bearer $token'},
     ).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) {
@@ -45,6 +48,15 @@ class RelayClient {
     final j = jsonDecode(res.body) as Map<String, dynamic>;
     final files = (j['files'] as List? ?? []).cast<Map<String, dynamic>>();
     return files.map(RelayFile.fromMap).toList();
+  }
+
+  /// Restore a soft-deleted file from the trash.
+  Future<void> restoreFile(String id) async {
+    final res = await http.post(
+      Uri.parse('$_base/v1/relay/files/${Uri.encodeComponent(id)}/restore'),
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200) throw RelayException(res.statusCode, res.body);
   }
 
   /// Streamed download with per-chunk progress callback.
@@ -114,9 +126,12 @@ class RelayClient {
     );
   }
 
-  Future<void> deleteFile(String id) async {
+  /// Soft-delete by default (file moves to Trash). Pass hard=true to
+  /// permanently wipe the blob — used by "Empty Trash".
+  Future<void> deleteFile(String id, {bool hard = false}) async {
+    final qs = hard ? '?hard=true' : '';
     final res = await http.delete(
-      Uri.parse('$_base/v1/relay/files/${Uri.encodeComponent(id)}'),
+      Uri.parse('$_base/v1/relay/files/${Uri.encodeComponent(id)}$qs'),
       headers: {'Authorization': 'Bearer $token'},
     ).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) {

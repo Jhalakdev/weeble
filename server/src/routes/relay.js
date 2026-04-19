@@ -54,14 +54,17 @@ export default async function relayRoutes(app) {
     }
   });
 
-  // List files on the user's host.
+  // List files on the user's host. Optional ?include_deleted=true returns
+  // soft-deleted (trash) entries instead of live ones.
   app.get('/v1/relay/files', {
     preHandler: [app.requireAuth, app.requireActiveSubscription],
   }, async (req, reply) => {
     const conn = tunnelHub.get(req.auth.accountId);
     if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    const includeDeleted = req.query.include_deleted === 'true' || req.query.include_deleted === '1';
+    const path = includeDeleted ? '/files?include_deleted=true' : '/files';
     try {
-      const res = await conn.request({ method: 'GET', path: '/files' });
+      const res = await conn.request({ method: 'GET', path });
       const body = await readAll(res.bodyStream);
       reply.code(res.status);
       reply.header('content-type', res.headers['content-type'] || 'application/json');
@@ -69,6 +72,26 @@ export default async function relayRoutes(app) {
     } catch (e) {
       req.log.error({ err: e }, 'tunnel list failed');
       return reply.code(502).send({ error: 'list_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Restore a soft-deleted file (Trash → My Drive).
+  app.post('/v1/relay/files/:id/restore', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({
+        method: 'POST',
+        path: `/files/${encodeURIComponent(req.params.id)}/restore`,
+      });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      return reply.code(502).send({ error: 'restore_failed', detail: String(e.message || e) });
     }
   });
 
@@ -98,11 +121,12 @@ export default async function relayRoutes(app) {
   }, async (req, reply) => {
     const conn = tunnelHub.get(req.auth.accountId);
     if (!conn) return reply.code(503).send({ error: 'host_offline' });
-    audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.delete.start', detail: { id: req.params.id } });
+    const hard = req.query.hard === 'true' || req.query.hard === '1';
+    audit({ accountId: req.auth.accountId, deviceId: req.auth.deviceId, ip: ipOf(req), action: 'relay.delete.start', detail: { id: req.params.id, hard } });
     try {
       const res = await conn.request({
         method: 'DELETE',
-        path: `/files/${encodeURIComponent(req.params.id)}`,
+        path: `/files/${encodeURIComponent(req.params.id)}${hard ? '?hard=true' : ''}`,
       });
       const body = await readAll(res.bodyStream);
       reply.code(res.status);

@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import '../../services/favorites_service.dart';
 import '../../services/host_lifecycle.dart';
 import '../../services/relay_client.dart';
 import '../../state/host_role.dart';
@@ -17,11 +18,20 @@ import '../../widgets/byte_size.dart';
 import '../../widgets/file_preview.dart';
 import '../../widgets/mobile_storage_card.dart';
 
+enum DriveFilter { myDrive, recent, favorites, trash }
+
 /// Client drive — used by mobile (iOS/Android) and any desktop that isn't
 /// the active host. Talks to the VPS relay (no UPnP / port forward
 /// required). Auto-polls every 4s so cross-device uploads appear.
+///
+/// `filter` decides what the screen shows:
+///   - myDrive → all live files (default)
+///   - recent → live files sorted by created_at desc, top 50
+///   - favorites → live files in the local FavoritesService set
+///   - trash → soft-deleted files (loaded with include_deleted=true)
 class ClientDriveScreen extends ConsumerStatefulWidget {
-  const ClientDriveScreen({super.key});
+  const ClientDriveScreen({super.key, this.filter = DriveFilter.myDrive});
+  final DriveFilter filter;
   @override
   ConsumerState<ClientDriveScreen> createState() => _ClientDriveScreenState();
 }
@@ -31,6 +41,7 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
   String? _error;
   List<RelayFile> _files = [];
   RelayStats? _stats;
+  Set<String> _favorites = {};
   Timer? _poll;
   final List<_TransferJob> _jobs = [];
 
@@ -50,11 +61,14 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
   Future<void> _refresh({bool silent = false}) async {
     if (!silent) setState(() { _loading = true; _error = null; });
     final client = ref.read(relayClientProvider);
+    final favs = ref.read(favoritesServiceProvider);
     try {
-      final files = await client.listFiles();
+      // Trash view fetches soft-deleted entries; everything else fetches live.
+      final files = await client.listFiles(includeDeleted: widget.filter == DriveFilter.trash);
       final stats = await client.stats();
+      final favoriteIds = await favs.all();
       if (!mounted) return;
-      setState(() { _files = files; _stats = stats; _loading = false; });
+      setState(() { _files = files; _stats = stats; _favorites = favoriteIds; _loading = false; });
     } on RelayException catch (e) {
       if (!silent && mounted) {
         setState(() {
@@ -241,13 +255,83 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
     };
   }
 
+  List<RelayFile> _filteredFiles() {
+    switch (widget.filter) {
+      case DriveFilter.myDrive:
+        return _files;
+      case DriveFilter.recent:
+        final sorted = [..._files]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return sorted.take(50).toList();
+      case DriveFilter.favorites:
+        return _files.where((f) => _favorites.contains(f.id)).toList();
+      case DriveFilter.trash:
+        return _files; // already filtered server-side via include_deleted
+    }
+  }
+
+  String get _title => switch (widget.filter) {
+        DriveFilter.myDrive => 'My Drive',
+        DriveFilter.recent => 'Recent',
+        DriveFilter.favorites => 'Starred',
+        DriveFilter.trash => 'Trash',
+      };
+
+  String get _activeRoute => switch (widget.filter) {
+        DriveFilter.myDrive => '/drive',
+        DriveFilter.recent => '/drive/recent',
+        DriveFilter.favorites => '/drive/favorites',
+        DriveFilter.trash => '/drive/trash',
+      };
+
+  Future<void> _toggleFavorite(RelayFile f) async {
+    await ref.read(favoritesServiceProvider).toggle(f.id);
+    final favs = await ref.read(favoritesServiceProvider).all();
+    if (mounted) setState(() => _favorites = favs);
+  }
+
+  Future<void> _restore(RelayFile f) async {
+    try {
+      await ref.read(relayClientProvider).restoreFile(f.id);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restored "${f.name}"')));
+      await _refresh(silent: true);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore failed: $e')));
+    }
+  }
+
+  Future<void> _hardDelete(RelayFile f) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete forever?'),
+        content: Text('"${f.name}" will be permanently removed. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            child: const Text('Delete forever'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ref.read(relayClientProvider).deleteFile(f.id, hard: true);
+      if (mounted) setState(() => _files.removeWhere((x) => x.id == f.id));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hostRole = ref.watch(hostRoleProvider);
     final isDesktopClient = (Platform.isMacOS || Platform.isWindows || Platform.isLinux) && hostRole.role != HostRole.active;
+    final visible = _filteredFiles();
     return AppShell(
-      title: 'My Drive',
-      activeRoute: '/drive',
+      title: _title,
+      activeRoute: _activeRoute,
       onCreateNew: _pickAndUpload,
       child: Stack(
         children: [
@@ -272,14 +356,20 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
                     ref.read(hostRoleProvider.notifier).setActive();
                     if (context.mounted) context.go('/drive');
                   }),
+                _SectionHeader(title: _title, count: visible.length, hint: _hintFor(widget.filter)),
                 if (_loading && _files.isEmpty) const Padding(
                   padding: EdgeInsets.symmetric(vertical: 80), child: Center(child: CircularProgressIndicator())),
                 if (_error != null) _ErrorBanner(message: _error!, onRetry: () => _refresh()),
-                if (!_loading && _files.isEmpty && _error == null) const _EmptyState(),
-                for (final f in _files) _FileRow(
+                if (!_loading && visible.isEmpty && _error == null) _EmptyState(filter: widget.filter),
+                for (final f in visible) _FileRow(
                   file: f,
+                  isFavorite: _favorites.contains(f.id),
+                  filter: widget.filter,
                   onDownload: () => _download(f),
                   onDelete: () => _confirmDelete(f),
+                  onFavorite: () => _toggleFavorite(f),
+                  onRestore: () => _restore(f),
+                  onHardDelete: () => _hardDelete(f),
                 ),
                 const SizedBox(height: 96),
               ],
@@ -296,13 +386,24 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _pickAndUpload,
-        backgroundColor: AppTheme.accent,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      floatingActionButton: widget.filter == DriveFilter.trash
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _pickAndUpload,
+              backgroundColor: AppTheme.accent,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add),
+              label: const Text('Upload'),
+            ),
     );
   }
+
+  String? _hintFor(DriveFilter f) => switch (f) {
+        DriveFilter.recent => 'Most recently uploaded files first.',
+        DriveFilter.favorites => 'Tap the star on any file to add it here. Stars are saved on this device.',
+        DriveFilter.trash => 'Files in trash can be restored. Use "Delete forever" to free up storage.',
+        DriveFilter.myDrive => null,
+      };
 
   Future<bool> _confirmTakeOver(BuildContext context) async {
     final result = await showDialog<bool>(
@@ -387,31 +488,87 @@ class _ProgressTile extends StatelessWidget {
 }
 
 class _FileRow extends StatelessWidget {
-  const _FileRow({required this.file, required this.onDownload, required this.onDelete});
+  const _FileRow({
+    required this.file,
+    required this.isFavorite,
+    required this.filter,
+    required this.onDownload,
+    required this.onDelete,
+    required this.onFavorite,
+    required this.onRestore,
+    required this.onHardDelete,
+  });
   final RelayFile file;
+  final bool isFavorite;
+  final DriveFilter filter;
   final VoidCallback onDownload;
   final VoidCallback onDelete;
+  final VoidCallback onFavorite;
+  final VoidCallback onRestore;
+  final VoidCallback onHardDelete;
+
   @override
   Widget build(BuildContext context) {
     final c = context.weeberColors;
-    return Container(
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.border))),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(children: [
-        FilePreview(mime: file.mime, name: file.name, size: 38),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(file.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500, color: c.textPrimary)),
-          const SizedBox(height: 2),
-          Text('${formatBytes(file.size)} · ${_fmt(file.createdAt)}',
-              style: GoogleFonts.poppins(fontSize: 10.5, color: c.textMuted)),
-        ])),
-        IconButton(icon: const Icon(Icons.download_outlined, size: 20), onPressed: onDownload, tooltip: 'Download'),
-        IconButton(icon: Icon(Icons.delete_outline, size: 20, color: Colors.red.shade400), onPressed: onDelete, tooltip: 'Delete'),
-      ]),
+    final isTrash = filter == DriveFilter.trash;
+    return InkWell(
+      onTap: isTrash ? null : onDownload,
+      child: Container(
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.border))),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(children: [
+          FilePreview(mime: file.mime, name: file.name, size: 44),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(file.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500, color: c.textPrimary))),
+              if (isFavorite && !isTrash) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.star_rounded, size: 14, color: Color(0xFFF59E0B)),
+              ],
+            ]),
+            const SizedBox(height: 3),
+            Text('${formatBytes(file.size)} · ${_fmt(file.createdAt)}',
+                style: GoogleFonts.poppins(fontSize: 11, color: c.textMuted)),
+          ])),
+          // Single ⋯ menu — Google-Drive-style. Different actions in Trash vs other views.
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 22),
+            tooltip: 'More',
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            onSelected: (v) {
+              switch (v) {
+                case 'download': onDownload(); break;
+                case 'fav': onFavorite(); break;
+                case 'delete': onDelete(); break;
+                case 'restore': onRestore(); break;
+                case 'forever': onHardDelete(); break;
+              }
+            },
+            itemBuilder: (_) => isTrash ? [
+              const PopupMenuItem(value: 'restore', child: ListTile(
+                leading: Icon(Icons.restore_rounded), title: Text('Restore'), dense: true)),
+              PopupMenuItem(value: 'forever', child: ListTile(
+                leading: Icon(Icons.delete_forever_rounded, color: Colors.red.shade600),
+                title: Text('Delete forever', style: TextStyle(color: Colors.red.shade600)), dense: true)),
+            ] : [
+              const PopupMenuItem(value: 'download', child: ListTile(
+                leading: Icon(Icons.download_rounded), title: Text('Download'), dense: true)),
+              PopupMenuItem(value: 'fav', child: ListTile(
+                leading: Icon(isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: isFavorite ? const Color(0xFFF59E0B) : null),
+                title: Text(isFavorite ? 'Remove from Starred' : 'Add to Starred'), dense: true)),
+              PopupMenuItem(value: 'delete', child: ListTile(
+                leading: Icon(Icons.delete_outline, color: Colors.red.shade600),
+                title: Text('Delete', style: TextStyle(color: Colors.red.shade600)), dense: true)),
+            ],
+          ),
+        ]),
+      ),
     );
   }
+
   static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   static String _fmt(int unix) {
     if (unix == 0) return 'just now';
@@ -420,24 +577,64 @@ class _FileRow extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, required this.count, this.hint});
+  final String title;
+  final int count;
+  final String? hint;
   @override
   Widget build(BuildContext context) {
     final c = context.weeberColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text(title, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700, color: c.textPrimary)),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppTheme.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Text('$count',
+                style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.accent)),
+          ),
+        ]),
+        if (hint != null) ...[
+          const SizedBox(height: 4),
+          Text(hint!, style: GoogleFonts.poppins(fontSize: 11.5, color: c.textMuted)),
+        ],
+      ]),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.filter});
+  final DriveFilter filter;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.weeberColors;
+    final (icon, title, body) = switch (filter) {
+      DriveFilter.myDrive => (Icons.cloud_upload_outlined, 'No files yet', 'Tap Upload to add your first file.'),
+      DriveFilter.recent => (Icons.access_time_rounded, 'Nothing recent', "Files you upload will show up here."),
+      DriveFilter.favorites => (Icons.star_outline_rounded, 'No starred files', 'Tap the ⋯ menu on any file → Add to Starred. Stars are saved on this device.'),
+      DriveFilter.trash => (Icons.delete_outline_rounded, 'Trash is empty', "Deleted files appear here. They aren't gone forever until you choose Delete forever."),
+    };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
       child: Column(children: [
         Container(
           width: 80, height: 80,
           decoration: BoxDecoration(color: AppTheme.accent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
-          child: const Icon(Icons.cloud_upload_outlined, size: 40, color: AppTheme.accent),
+          child: Icon(icon, size: 40, color: AppTheme.accent),
         ),
         const SizedBox(height: 16),
-        Text('No files yet', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: c.textPrimary)),
-        const SizedBox(height: 4),
-        Text('Tap the + button to upload your first file.',
-            textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 12, color: c.textMuted)),
+        Text(title, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: c.textPrimary)),
+        const SizedBox(height: 6),
+        Text(body, textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(fontSize: 12, color: c.textMuted, height: 1.4)),
       ]),
     );
   }

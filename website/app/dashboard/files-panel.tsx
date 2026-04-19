@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Upload, Download, FileText, CloudOff, RefreshCw, File, Trash2, X,
   Image as ImageIcon, Music, Film, FileCode, Archive, FileSpreadsheet,
-  Plus, HardDrive,
+  Plus, HardDrive, LayoutGrid, List as ListIcon, MoreVertical, Star,
 } from 'lucide-react';
 
 type FileItem = { id: string; name: string; size: number; mime: string; created_at: number };
@@ -45,6 +45,9 @@ export function FilesPanel({
   const [pullDist, setPullDist] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<'list' | 'grid'>('list');
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadJob[]>([]);
   const [downloads, setDownloads] = useState<DownloadJob[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,13 +73,32 @@ export function FilesPanel({
     }
   }, []);
 
-  // Initial stats fetch + auto-poll for cross-device updates (phone uploads
-  // appear on web, web uploads appear on phone, etc.).
+  // Initial stats fetch + auto-poll for cross-device updates.
   useEffect(() => {
     refresh(true);
     const id = setInterval(() => refresh(true), POLL_MS);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // View preference + favorites: persisted in localStorage.
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('weeber.view');
+      if (v === 'grid' || v === 'list') setView(v);
+      const f = localStorage.getItem('weeber.favorites');
+      if (f) setFavorites(new Set(JSON.parse(f)));
+    } catch { /* private mode etc — fine */ }
+  }, []);
+  useEffect(() => { try { localStorage.setItem('weeber.view', view); } catch {} }, [view]);
+  useEffect(() => { try { localStorage.setItem('weeber.favorites', JSON.stringify([...favorites])); } catch {} }, [favorites]);
+
+  function toggleFavorite(id: string) {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function deleteFromHost(file: FileItem) {
     setBusy(true);
@@ -247,7 +269,21 @@ export function FilesPanel({
               {online ? `${visibleFiles.length} file${visibleFiles.length === 1 ? '' : 's'} on your computer` : 'Your storage is offline'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <div className="hidden sm:flex items-center bg-[color:var(--body)] rounded-lg p-0.5">
+              <button
+                onClick={() => setView('list')}
+                aria-label="List view"
+                title="List"
+                className={`p-1.5 rounded-md transition ${view === 'list' ? 'bg-[color:var(--surface)] text-[color:var(--accent)] shadow-sm' : 'text-[color:var(--text-muted)] hover:text-[color:var(--text)]'}`}
+              ><ListIcon size={14} /></button>
+              <button
+                onClick={() => setView('grid')}
+                aria-label="Grid view"
+                title="Grid"
+                className={`p-1.5 rounded-md transition ${view === 'grid' ? 'bg-[color:var(--surface)] text-[color:var(--accent)] shadow-sm' : 'text-[color:var(--text-muted)] hover:text-[color:var(--text)]'}`}
+              ><LayoutGrid size={14} /></button>
+            </div>
             <button
               onClick={() => refresh()}
               disabled={busy}
@@ -278,17 +314,44 @@ export function FilesPanel({
           <div className="mb-3 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">{error}</div>
         )}
 
-        {!online ? <OfflineState /> : !reachable ? <UnreachableState /> : visibleFiles.length === 0 ? <EmptyState onPick={() => inputRef.current?.click()} /> : (
+        {!online ? <OfflineState /> : !reachable ? <UnreachableState /> : visibleFiles.length === 0 ? <EmptyState onPick={() => inputRef.current?.click()} /> : view === 'grid' ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {visibleFiles.map((f) => (
+              <FileGridCard
+                key={f.id}
+                file={f}
+                isFav={favorites.has(f.id)}
+                isMenuOpen={openMenu === f.id}
+                onMenuToggle={() => setOpenMenu(openMenu === f.id ? null : f.id)}
+                onMenuClose={() => setOpenMenu(null)}
+                onDownload={() => downloadFile(f)}
+                onDelete={() => setDeleteTarget(f)}
+                onFavorite={() => toggleFavorite(f.id)}
+              />
+            ))}
+          </div>
+        ) : (
           <ul className="divide-y divide-[color:var(--border)]">
             {visibleFiles.map((f) => (
-              <li key={f.id} className="flex items-center gap-3 py-3">
+              <li key={f.id} className="group flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg hover:bg-[color:var(--accent-muted)]/40 transition">
                 <FilePreview mime={f.mime} name={f.name} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium truncate">{f.name}</div>
+                  <div className="text-[13px] font-medium truncate flex items-center gap-1.5">
+                    <span className="truncate">{f.name}</span>
+                    {favorites.has(f.id) && <Star size={11} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
+                  </div>
                   <div className="text-[11px] text-[color:var(--text-muted)]">
                     {formatBytes(f.size)} · uploaded {fmtDate(f.created_at)}
                   </div>
                 </div>
+                <button
+                  onClick={() => toggleFavorite(f.id)}
+                  className={`p-2 rounded-lg ${favorites.has(f.id) ? 'text-amber-500' : 'text-[color:var(--text-muted)] hover:text-amber-500'} opacity-0 group-hover:opacity-100 transition`}
+                  title={favorites.has(f.id) ? 'Remove from Starred' : 'Add to Starred'}
+                  aria-label="Star"
+                >
+                  <Star size={16} fill={favorites.has(f.id) ? 'currentColor' : 'none'} />
+                </button>
                 <button
                   onClick={() => downloadFile(f)}
                   className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--accent)]"
@@ -454,6 +517,60 @@ function ProgressRow({
           }}
         />
       </div>
+    </div>
+  );
+}
+
+function FileGridCard({
+  file, isFav, isMenuOpen, onMenuToggle, onMenuClose, onDownload, onDelete, onFavorite,
+}: {
+  file: FileItem;
+  isFav: boolean;
+  isMenuOpen: boolean;
+  onMenuToggle: () => void;
+  onMenuClose: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+  onFavorite: () => void;
+}) {
+  return (
+    <div
+      className="group relative flex flex-col rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-hidden hover:shadow-md hover:border-[color:var(--accent)] transition cursor-pointer"
+      onClick={onDownload}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${file.name}`}
+    >
+      <div className="aspect-square flex items-center justify-center bg-[color:var(--body)]">
+        <div className="scale-150"><FilePreview mime={file.mime} name={file.name} /></div>
+      </div>
+      <div className="p-3">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <div className="flex-1 min-w-0 text-[12px] font-medium truncate">{file.name}</div>
+          {isFav && <Star size={11} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
+        </div>
+        <div className="text-[10px] text-[color:var(--text-muted)]">{formatBytes(file.size)}</div>
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onMenuToggle(); }}
+        className="absolute top-2 right-2 p-1.5 rounded-lg bg-[color:var(--surface)]/80 backdrop-blur text-[color:var(--text-muted)] hover:text-[color:var(--text)] opacity-0 group-hover:opacity-100 transition"
+        aria-label="More"
+      >
+        <MoreVertical size={14} />
+      </button>
+      {isMenuOpen && (
+        <div
+          className="absolute top-10 right-2 z-20 w-40 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button onClick={() => { onDownload(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Download size={12} /> Download</button>
+          <button onClick={() => { onFavorite(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
+            <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
+            {isFav ? 'Remove from Starred' : 'Add to Starred'}
+          </button>
+          <button onClick={() => { onDelete(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2"><Trash2 size={12} /> Delete</button>
+        </div>
+      )}
     </div>
   );
 }

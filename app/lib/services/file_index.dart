@@ -155,6 +155,13 @@ class FileIndex {
     await _db.delete('files', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Bring a soft-deleted file back to the live list (Trash → My Drive).
+  /// Note: only the index row is restored. The encrypted blob may already
+  /// be gone from FileStorage if delete() ran — caller should handle that.
+  Future<void> restore(String id) async {
+    await _db.update('files', {'deleted_at': null}, where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<int> totalSize() async {
     final r = await _db.rawQuery('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE deleted_at IS NULL');
     return (r.first['total'] as int?) ?? 0;

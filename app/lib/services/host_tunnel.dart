@@ -206,12 +206,22 @@ class HostTunnel {
         _sendResponse(id, 200, {'content-type': 'application/json'}, utf8.encode(json));
         return;
       }
-      if (method == 'GET' && path == '/files') {
-        // includeDeleted defaults to false on FileIndex.list, so soft-deleted
-        // entries are filtered out automatically.
-        final files = await runtime.index.list();
-        final json = jsonEncode({'files': files.map((e) => e.toMap()).toList()});
+      if (method == 'GET' && (path == '/files' || path.startsWith('/files?'))) {
+        // ?include_deleted=true returns the trash; otherwise live entries only.
+        final qIdx = path.indexOf('?');
+        final includeDeleted = qIdx >= 0 && Uri.splitQueryString(path.substring(qIdx + 1))['include_deleted'] == 'true';
+        final files = await runtime.index.list(includeDeleted: includeDeleted);
+        // For trash view, only return entries that have actually been deleted.
+        final filtered = includeDeleted ? files.where((f) => f.deletedAt != null).toList() : files;
+        final json = jsonEncode({'files': filtered.map((e) => e.toMap()).toList()});
         _sendResponse(id, 200, {'content-type': 'application/json'}, utf8.encode(json));
+        return;
+      }
+      if (method == 'POST' && path.startsWith('/files/') && path.endsWith('/restore')) {
+        final fileId = Uri.decodeComponent(path.substring('/files/'.length, path.length - '/restore'.length));
+        await runtime.index.restore(fileId);
+        _sendResponse(id, 200, {'content-type': 'application/json'},
+            utf8.encode(jsonEncode({'ok': true, 'id': fileId})));
         return;
       }
       if (method == 'GET' && path.startsWith('/files/')) {
@@ -253,21 +263,28 @@ class HostTunnel {
         return;
       }
       if (method == 'DELETE' && path.startsWith('/files/')) {
-        final fileId = Uri.decodeComponent(path.substring('/files/'.length));
+        // ?hard=true wipes the blob immediately (used by "Empty Trash").
+        // Default = soft-delete: row stays with deleted_at, blob stays so
+        // the user can restore from Trash.
+        final qIdx = path.indexOf('?');
+        final cleanPath = qIdx >= 0 ? path.substring(0, qIdx) : path;
+        final hard = qIdx >= 0 && Uri.splitQueryString(path.substring(qIdx + 1))['hard'] == 'true';
+        final fileId = Uri.decodeComponent(cleanPath.substring('/files/'.length));
         final entry = await runtime.index.get(fileId);
         if (entry == null) {
           _sendResponse(id, 404, {'content-type': 'application/json'},
               utf8.encode(jsonEncode({'error': 'not_found'})));
           return;
         }
-        // Soft-delete in the index, then remove the encrypted blob from disk.
-        // The index keeps the row (with deleted_at) so other clients can see
-        // the tombstone and remove their cached copies.
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        await runtime.index.softDelete(fileId, at: now);
-        try { await runtime.storage.delete(fileId); } catch (_) {}
+        if (hard) {
+          await runtime.index.hardDelete(fileId);
+          try { await runtime.storage.delete(fileId); } catch (_) {}
+        } else {
+          await runtime.index.softDelete(fileId, at: now);
+        }
         _sendResponse(id, 200, {'content-type': 'application/json'},
-            utf8.encode(jsonEncode({'ok': true, 'id': fileId, 'deleted_at': now})));
+            utf8.encode(jsonEncode({'ok': true, 'id': fileId, 'deleted_at': now, 'hard': hard})));
         return;
       }
       _sendResponse(id, 404, {'content-type': 'application/json'},
