@@ -438,7 +438,7 @@ export function FilesPanel({
     <>
       <section
         ref={containerRef}
-        className={`rounded-2xl bg-[color:var(--surface)] border p-5 relative transition ${dragOver ? 'border-[color:var(--accent)] ring-2 ring-[color:var(--accent)]/30' : 'border-[color:var(--border)]'}`}
+        className={`bg-[color:var(--surface)] border-0 md:border p-3 pt-4 md:p-5 md:rounded-2xl relative transition ${dragOver ? 'md:border-[color:var(--accent)] md:ring-2 md:ring-[color:var(--accent)]/30' : 'md:border-[color:var(--border)]'}`}
         onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
         onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
         onDrop={(e) => {
@@ -642,7 +642,7 @@ export function FilesPanel({
                     }
                     setDragRowId(null);
                   } : undefined}
-                  className={`group flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg transition cursor-default ${
+                  className={`group flex items-center gap-3 py-3.5 md:py-3 px-1 md:px-2 rounded-lg transition cursor-default ${
                     isDropTarget ? 'bg-[color:var(--accent-muted)] ring-2 ring-[color:var(--accent)]'
                     : isSel ? 'bg-[color:var(--accent-muted)]'
                     : 'hover:bg-[color:var(--accent-muted)]/40'
@@ -661,19 +661,21 @@ export function FilesPanel({
                     className="flex-1 min-w-0 flex items-center gap-3 text-left"
                   >
                     {folder ? (
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: '#FEF3C7' }}>
-                        <FolderIcon size={18} className="text-amber-600" fill="#FDE68A" />
+                      <div className="w-12 h-12 md:w-10 md:h-10 rounded-xl md:rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7' }}>
+                        <FolderIcon size={22} className="text-amber-600 md:hidden" fill="#FDE68A" />
+                        <FolderIcon size={18} className="text-amber-600 hidden md:block" fill="#FDE68A" />
                       </div>
                     ) : (
-                      <FilePreview mime={f.mime} name={f.name} />
+                      <div className="md:hidden"><FilePreview mime={f.mime} name={f.name} size={48} /></div>
                     )}
+                    {!folder && <div className="hidden md:block"><FilePreview mime={f.mime} name={f.name} /></div>}
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium truncate flex items-center gap-1.5">
+                      <div className="text-[15px] md:text-[13px] font-medium truncate flex items-center gap-1.5">
                         <span className="truncate">{f.name}</span>
-                        {favorites.has(f.id) && <Star size={11} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
+                        {favorites.has(f.id) && <Star size={12} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
                       </div>
-                      <div className="text-[11px] text-[color:var(--text-muted)]">
-                        {folder ? `Folder · ${fmtDate(f.created_at)}` : `${formatBytes(f.size)} · uploaded ${fmtDate(f.created_at)}`}
+                      <div className="text-[12px] md:text-[11px] text-[color:var(--text-muted)]">
+                        {folder ? `Folder · ${fmtDate(f.created_at)}` : `${formatBytes(f.size)} · ${fmtDate(f.created_at)}`}
                       </div>
                     </div>
                   </button>
@@ -1284,65 +1286,33 @@ function DeleteModal({
 // Code/text: blue.
 // Spreadsheet: green.
 // Archive: amber.
-function FilePreview({ mime, name }: { mime: string; name: string }) {
+function FilePreview({ mime, name, size = 36 }: { mime: string; name: string; size?: number }) {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   const kind = mimeKind(mime, ext);
+  const iconSize = Math.round(size * 0.45);
 
   const styles: Record<string, { bg: string; fg: string; label?: string; icon: React.ReactNode }> = {
     image: {
       bg: 'linear-gradient(135deg, #C4B5FD 0%, #8B5CF6 100%)',
       fg: '#fff',
-      icon: <ImageIcon size={16} />,
+      icon: <ImageIcon size={iconSize} />,
     },
-    pdf: {
-      bg: '#FEE2E2',
-      fg: '#DC2626',
-      label: 'PDF',
-      icon: <FileText size={16} />,
-    },
-    audio: {
-      bg: 'linear-gradient(135deg, #FBCFE8 0%, #EC4899 100%)',
-      fg: '#fff',
-      icon: <Music size={16} />,
-    },
-    video: {
-      bg: 'linear-gradient(135deg, #1F2937 0%, #4B5563 100%)',
-      fg: '#fff',
-      icon: <Film size={16} />,
-    },
-    spreadsheet: {
-      bg: '#D1FAE5',
-      fg: '#059669',
-      label: ext.toUpperCase().slice(0, 4),
-      icon: <FileSpreadsheet size={16} />,
-    },
-    archive: {
-      bg: '#FEF3C7',
-      fg: '#D97706',
-      label: ext.toUpperCase().slice(0, 4),
-      icon: <Archive size={16} />,
-    },
-    code: {
-      bg: '#DBEAFE',
-      fg: '#2563EB',
-      label: ext.toUpperCase().slice(0, 4),
-      icon: <FileCode size={16} />,
-    },
-    text: {
-      bg: '#DBEAFE',
-      fg: '#2563EB',
-      icon: <FileText size={16} />,
-    },
-    other: {
-      bg: '#E5E7EB',
-      fg: '#6B7280',
-      icon: <File size={16} />,
-    },
+    pdf: { bg: '#FEE2E2', fg: '#DC2626', label: 'PDF', icon: <FileText size={iconSize} /> },
+    audio: { bg: 'linear-gradient(135deg, #FBCFE8 0%, #EC4899 100%)', fg: '#fff', icon: <Music size={iconSize} /> },
+    video: { bg: 'linear-gradient(135deg, #1F2937 0%, #4B5563 100%)', fg: '#fff', icon: <Film size={iconSize} /> },
+    spreadsheet: { bg: '#D1FAE5', fg: '#059669', label: ext.toUpperCase().slice(0, 4), icon: <FileSpreadsheet size={iconSize} /> },
+    archive: { bg: '#FEF3C7', fg: '#D97706', label: ext.toUpperCase().slice(0, 4), icon: <Archive size={iconSize} /> },
+    code: { bg: '#DBEAFE', fg: '#2563EB', label: ext.toUpperCase().slice(0, 4), icon: <FileCode size={iconSize} /> },
+    text: { bg: '#DBEAFE', fg: '#2563EB', icon: <FileText size={iconSize} /> },
+    other: { bg: '#E5E7EB', fg: '#6B7280', icon: <File size={iconSize} /> },
   };
 
   const s = styles[kind] ?? styles.other;
   return (
-    <div className="relative w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center" style={{ background: s.bg, color: s.fg }}>
+    <div
+      className="relative rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0"
+      style={{ width: size, height: size, background: s.bg, color: s.fg }}
+    >
       {s.icon}
       {s.label && (
         <div

@@ -30,7 +30,7 @@ export default async function DashboardPage() {
   const recent = [...initialFiles].sort((a, b) => b.created_at - a.created_at).slice(0, 6);
 
   return (
-    <div className="px-4 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
+    <div className="px-3 md:px-6 py-3 md:py-6 space-y-3 md:space-y-6">
       <WelcomeHero
         plan={status.plan}
         trialDaysRemaining={status.trial_days_remaining}

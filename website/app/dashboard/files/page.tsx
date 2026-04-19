@@ -17,7 +17,9 @@ export default async function DashboardFilesPage() {
   const initialFiles = filesRes?.files ?? [];
 
   return (
-    <div className="px-4 md:px-6 py-4 md:py-6">
+    // Edge-to-edge on mobile (no side padding) so files appear larger
+    // and use the full screen width — feels "zoomed in".
+    <div className="px-0 md:px-6 py-0 md:py-6">
       <FilesPanel initialFiles={initialFiles} hostOnline={!!activeHost} />
     </div>
   );
