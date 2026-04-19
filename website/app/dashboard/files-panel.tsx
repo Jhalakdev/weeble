@@ -481,8 +481,8 @@ export function FilesPanel({
 
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-[15px] font-semibold">{path.length === 0 ? 'My files' : path[path.length - 1].name}</h2>
-            <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
+            <h2 className="text-[18px] md:text-[15px] font-semibold">{path.length === 0 ? 'My files' : path[path.length - 1].name}</h2>
+            <p className="text-[12px] md:text-xs text-[color:var(--text-muted)] mt-0.5">
               {online ? `${visibleFiles.length} item${visibleFiles.length === 1 ? '' : 's'}` : 'Your storage is offline'}
             </p>
           </div>
@@ -661,20 +661,20 @@ export function FilesPanel({
                     className="flex-1 min-w-0 flex items-center gap-3 text-left"
                   >
                     {folder ? (
-                      <div className="w-12 h-12 md:w-10 md:h-10 rounded-xl md:rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7' }}>
-                        <FolderIcon size={22} className="text-amber-600 md:hidden" fill="#FDE68A" />
+                      <div className="w-[54px] h-[54px] md:w-10 md:h-10 rounded-xl md:rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7' }}>
+                        <FolderIcon size={26} className="text-amber-600 md:hidden" fill="#FDE68A" />
                         <FolderIcon size={18} className="text-amber-600 hidden md:block" fill="#FDE68A" />
                       </div>
                     ) : (
-                      <div className="md:hidden"><FilePreview mime={f.mime} name={f.name} size={48} /></div>
+                      <div className="md:hidden"><FilePreview mime={f.mime} name={f.name} size={54} /></div>
                     )}
                     {!folder && <div className="hidden md:block"><FilePreview mime={f.mime} name={f.name} /></div>}
                     <div className="flex-1 min-w-0">
-                      <div className="text-[15px] md:text-[13px] font-medium truncate flex items-center gap-1.5">
+                      <div className="text-[16.5px] md:text-[13px] font-medium truncate flex items-center gap-1.5">
                         <span className="truncate">{f.name}</span>
-                        {favorites.has(f.id) && <Star size={12} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
+                        {favorites.has(f.id) && <Star size={13} className="text-amber-500 flex-shrink-0" fill="currentColor" />}
                       </div>
-                      <div className="text-[12px] md:text-[11px] text-[color:var(--text-muted)]">
+                      <div className="text-[13px] md:text-[11px] text-[color:var(--text-muted)] mt-0.5">
                         {folder ? `Folder · ${fmtDate(f.created_at)}` : `${formatBytes(f.size)} · ${fmtDate(f.created_at)}`}
                       </div>
                     </div>
