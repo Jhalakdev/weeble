@@ -18,6 +18,7 @@ import 'screens/pairing/scan_qr_screen.dart';
 import 'security/embedded_secrets.g.dart';
 import 'security/license_guard.dart';
 import 'services/client_registration.dart';
+import 'services/desktop_lifecycle.dart';
 import 'services/host_lifecycle.dart';
 import 'state/auth.dart';
 import 'state/config.dart';
@@ -28,6 +29,12 @@ import 'theme/theme_controller.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   applyEmbeddedSecrets(); // unscrambles API URL + license public key
+
+  // Desktop "always-on" services: tray icon, hide-on-close (so the
+  // host stays alive when the user clicks the red X), and auto-launch
+  // on system boot. No-op on mobile.
+  await DesktopLifecycle.instance.initialize();
+
   runApp(const ProviderScope(child: WeeberApp()));
 }
 
@@ -70,11 +77,25 @@ class _WeeberAppState extends ConsumerState<WeeberApp> {
       // ignore: unawaited_futures
       ref.read(clientRegistrationProvider).ensureRegistered();
     }
+
+    // Pass the storage path to the desktop lifecycle so "Show files
+    // folder" in the tray menu opens the right Finder/Explorer window.
+    DesktopLifecycle.instance.storagePath = ref.read(appConfigProvider).storagePath;
     if (mounted) setState(() => _bootstrapped = true);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Reflect host-online state in the tray menu so users see
+    // Connected / Disconnected without opening the window. Listening
+    // here (inside build) is the Riverpod-correct location.
+    ref.listen(hostRoleProvider, (_, next) {
+      DesktopLifecycle.instance.updateStatus(connected: next.role == HostRole.active);
+    });
+    ref.listen(appConfigProvider, (_, next) {
+      DesktopLifecycle.instance.storagePath = next.storagePath;
+    });
+
     if (!_bootstrapped) {
       return MaterialApp(
         theme: AppTheme.light(),

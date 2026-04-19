@@ -63,6 +63,17 @@ dependencies:
   fl_chart: ^0.69.0
   shared_preferences: ^2.3.2
 
+  # Desktop "always-on" features:
+  #   launch_at_startup → register the app to auto-launch on system boot
+  #     (macOS LaunchAgent / Windows Run registry / Linux .desktop autostart)
+  #   tray_manager      → menu-bar (macOS) / system-tray (Windows + Linux)
+  #     icon with a context menu (Open, Status, Quit).
+  #   window_manager    → intercept the close button so the window HIDES
+  #     instead of quitting — the host stays alive serving files.
+  launch_at_startup: ^0.5.1
+  tray_manager: ^0.4.0
+  window_manager: ^0.4.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -70,3 +81,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/tray_icon.png
