@@ -16,6 +16,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/byte_size.dart';
 import '../../widgets/file_preview.dart';
+import '../../widgets/file_preview_modal.dart';
 import '../../widgets/mobile_storage_card.dart';
 
 enum DriveFilter { myDrive, recent, favorites, trash }
@@ -493,7 +494,20 @@ class _ClientDriveScreenState extends ConsumerState<ClientDriveScreen> {
                   filter: widget.filter,
                   onTap: () {
                     if (_selected.isNotEmpty) { _toggleSelect(f); return; }
-                    if (f.isFolder) { _enterFolder(f); } else { _download(f); }
+                    if (f.isFolder) {
+                      _enterFolder(f);
+                    } else {
+                      // Tap a file = open the native preview modal
+                      // (image / PDF / video / audio / text / CSV).
+                      // Download is still reachable from the ⋯ menu
+                      // and from inside the preview itself.
+                      showFilePreview(
+                        context: context,
+                        ref: ref,
+                        file: f,
+                        onDownload: () async => _download(f),
+                      );
+                    }
                   },
                   onLongPress: () => _toggleSelect(f),
                   onSelectToggle: () => _toggleSelect(f),

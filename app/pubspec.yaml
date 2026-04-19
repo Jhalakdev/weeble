@@ -74,6 +74,14 @@ dependencies:
   tray_manager: ^0.4.0
   window_manager: ^0.4.3
 
+  # In-app file preview (iOS / Android / macOS parity with the website):
+  #   pdfx          → cross-platform PDF rendering
+  #   video_player  → iOS + Android + macOS video playback
+  #   just_audio    → iOS + Android + macOS audio playback
+  pdfx: ^2.9.0
+  video_player: ^2.10.0
+  just_audio: ^0.9.46
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
