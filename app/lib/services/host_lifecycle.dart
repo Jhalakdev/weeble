@@ -11,6 +11,7 @@ import 'cert.dart';
 import 'host_server.dart';
 import 'host_tunnel.dart';
 import 'keypair.dart';
+import 'linux_bookmark.dart';
 import 'upnp.dart';
 
 /// Host-side runtime: device registration, TLS cert, UPnP, HTTPS server,
@@ -115,6 +116,15 @@ class HostLifecycle {
       _log('SKIP: onboarding not complete');
       return;
     }
+
+    // Linux file-manager sidebar bookmark — fire-and-forget, idempotent,
+    // no-op on macOS/Windows. Drops a "Weeber" entry into Nautilus /
+    // Files / Dolphin so users can drag-drop into the storage folder
+    // directly. (The proper Finder File Provider Extension on macOS and
+    // Cloud Files API on Windows ship in follow-up passes — see
+    // memory: weeber_finder_sidebar_roadmap.md.)
+    // ignore: unawaited_futures
+    LinuxBookmark.ensure(cfg.storagePath!);
     if (auth.token == null) {
       _log('SKIP: not logged in');
       return;
