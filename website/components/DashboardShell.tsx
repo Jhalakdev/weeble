@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   LayoutGrid, FolderOpen, Download, DollarSign, Cloud,
@@ -153,14 +153,9 @@ function TopBar({ isDark, onToggleTheme, plan }: { isDark: boolean; onToggleThem
         </span>
       </Link>
 
-      {/* Desktop search bar */}
+      {/* Desktop search bar — submits to /dashboard/files?q=… */}
       <div className="hidden md:block relative max-w-md flex-1">
-        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
-        <input
-          type="text"
-          placeholder="Type here to search..."
-          className="w-full h-10 bg-[color:var(--body)] rounded-full pl-10 pr-4 text-[13px] placeholder:text-[color:var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[color:var(--accent)]"
-        />
+        <SearchInput />
       </div>
       <div className="flex-1" />
 
@@ -178,6 +173,32 @@ function TopBar({ isDark, onToggleTheme, plan }: { isDark: boolean; onToggleThem
         <div className="ml-1 w-9 h-9 rounded-full bg-[color:var(--accent)] flex items-center justify-center text-white font-semibold text-sm">W</div>
       </div>
     </header>
+  );
+}
+
+function SearchInput() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [q, setQ] = useState(params?.get('q') ?? '');
+  useEffect(() => { setQ(params?.get('q') ?? ''); }, [params]);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const next = q.trim();
+    router.push(next ? `/dashboard/files?q=${encodeURIComponent(next)}` : '/dashboard/files');
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
+      <input
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search files…"
+        className="w-full h-10 bg-[color:var(--body)] rounded-full pl-10 pr-4 text-[13px] placeholder:text-[color:var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[color:var(--accent)]"
+      />
+    </form>
   );
 }
 

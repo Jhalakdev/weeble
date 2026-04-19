@@ -92,43 +92,42 @@ class _WeeberAppState extends ConsumerState<WeeberApp> {
   }
 }
 
+// Wrap a builder so the route uses NoTransitionPage — this kills the
+// default right-to-left slide that the user said was hard on the eyes.
+// Switching tabs now feels instant, like a desktop app.
+Page<dynamic> _instant(GoRouterState s, Widget child) =>
+    NoTransitionPage(key: ValueKey(s.matchedLocation), child: child);
+
 GoRouter _buildRouter(WidgetRef ref) {
   return GoRouter(
     initialLocation: '/',
     refreshListenable: _RouterRefresh(ref),
     routes: [
-      GoRoute(path: '/', builder: (_, _) => const _RootRedirect()),
-      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-      GoRoute(path: '/signup', builder: (_, _) => const SignupScreen()),
-      GoRoute(path: '/onboarding/welcome', builder: (_, _) => const WelcomeScreen()),
-      GoRoute(path: '/onboarding/storage', builder: (_, _) => const StorageScreen()),
-      GoRoute(path: '/onboarding/encryption', builder: (_, _) => const EncryptionScreen()),
-      GoRoute(path: '/drive', builder: (_, _) {
-        // Decide host vs client view based on the role we determined at
-        // bootstrap (which asked the VPS who the active host is).
+      GoRoute(path: '/', pageBuilder: (_, s) => _instant(s, const _RootRedirect())),
+      GoRoute(path: '/login', pageBuilder: (_, s) => _instant(s, const LoginScreen())),
+      GoRoute(path: '/signup', pageBuilder: (_, s) => _instant(s, const SignupScreen())),
+      GoRoute(path: '/onboarding/welcome', pageBuilder: (_, s) => _instant(s, const WelcomeScreen())),
+      GoRoute(path: '/onboarding/storage', pageBuilder: (_, s) => _instant(s, const StorageScreen())),
+      GoRoute(path: '/onboarding/encryption', pageBuilder: (_, s) => _instant(s, const EncryptionScreen())),
+      GoRoute(path: '/drive', pageBuilder: (_, s) {
         final role = ref.read(hostRoleProvider).role;
-        return role == HostRole.active
+        return _instant(s, role == HostRole.active
             ? const DriveScreen()
-            : const ClientDriveScreen(key: ValueKey('drive-mine'));
+            : const ClientDriveScreen(key: ValueKey('drive-mine')));
       }),
-      // Filtered views — Recent/Favorites/Trash all render through
-      // ClientDriveScreen with a filter param. ValueKey per route forces
-      // Flutter to create a fresh State on each switch (otherwise the
-      // file list stays stale because the State persists across the
-      // /drive/* tree).
-      GoRoute(path: '/drive/recent', builder: (_, _) =>
-          const ClientDriveScreen(key: ValueKey('drive-recent'), filter: DriveFilter.recent)),
-      GoRoute(path: '/drive/favorites', builder: (_, _) =>
-          const ClientDriveScreen(key: ValueKey('drive-favorites'), filter: DriveFilter.favorites)),
-      GoRoute(path: '/drive/trash', builder: (_, _) =>
-          const ClientDriveScreen(key: ValueKey('drive-trash'), filter: DriveFilter.trash)),
-      GoRoute(path: '/devices', builder: (_, _) => const DevicesScreen()),
-      GoRoute(path: '/account', builder: (_, _) => const AccountScreen()),
-      GoRoute(path: '/pair/host', builder: (_, _) => const HostQrScreen()),
-      GoRoute(path: '/pair', builder: (_, _) => const ScanQrScreen()),
-      GoRoute(path: '/blocked', builder: (_, _) => const LicenseBlockedScreen()),
-      GoRoute(path: '/demoted', builder: (_, _) => const DemotedScreen()),
-      GoRoute(path: '/backup', builder: (_, _) => const BackupScreen()),
+      GoRoute(path: '/drive/recent', pageBuilder: (_, s) =>
+          _instant(s, const ClientDriveScreen(key: ValueKey('drive-recent'), filter: DriveFilter.recent))),
+      GoRoute(path: '/drive/favorites', pageBuilder: (_, s) =>
+          _instant(s, const ClientDriveScreen(key: ValueKey('drive-favorites'), filter: DriveFilter.favorites))),
+      GoRoute(path: '/drive/trash', pageBuilder: (_, s) =>
+          _instant(s, const ClientDriveScreen(key: ValueKey('drive-trash'), filter: DriveFilter.trash))),
+      GoRoute(path: '/devices', pageBuilder: (_, s) => _instant(s, const DevicesScreen())),
+      GoRoute(path: '/account', pageBuilder: (_, s) => _instant(s, const AccountScreen())),
+      GoRoute(path: '/pair/host', pageBuilder: (_, s) => _instant(s, const HostQrScreen())),
+      GoRoute(path: '/pair', pageBuilder: (_, s) => _instant(s, const ScanQrScreen())),
+      GoRoute(path: '/blocked', pageBuilder: (_, s) => _instant(s, const LicenseBlockedScreen())),
+      GoRoute(path: '/demoted', pageBuilder: (_, s) => _instant(s, const DemotedScreen())),
+      GoRoute(path: '/backup', pageBuilder: (_, s) => _instant(s, const BackupScreen())),
     ],
     redirect: (context, state) {
       final auth = ref.read(authProvider);

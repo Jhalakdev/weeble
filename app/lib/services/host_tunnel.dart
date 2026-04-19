@@ -217,6 +217,30 @@ class HostTunnel {
         _sendResponse(id, 200, {'content-type': 'application/json'}, utf8.encode(json));
         return;
       }
+      if (method == 'PATCH' && path.startsWith('/files/') && bodyBytes != null) {
+        final fileId = Uri.decodeComponent(path.substring('/files/'.length));
+        Map<String, dynamic> patch;
+        try { patch = jsonDecode(utf8.decode(bodyBytes)) as Map<String, dynamic>; }
+        catch (_) {
+          _sendResponse(id, 400, {'content-type': 'application/json'},
+              utf8.encode(jsonEncode({'error': 'bad_json'})));
+          return;
+        }
+        final entry = await runtime.index.get(fileId);
+        if (entry == null) {
+          _sendResponse(id, 404, {'content-type': 'application/json'},
+              utf8.encode(jsonEncode({'error': 'not_found'})));
+          return;
+        }
+        final newName = (patch['name'] as String?)?.trim();
+        if (newName != null && newName.isNotEmpty) {
+          await runtime.index.rename(fileId, newName);
+        }
+        final updated = await runtime.index.get(fileId);
+        _sendResponse(id, 200, {'content-type': 'application/json'},
+            utf8.encode(jsonEncode(updated?.toMap() ?? {'ok': true})));
+        return;
+      }
       if (method == 'POST' && path.startsWith('/files/') && path.endsWith('/restore')) {
         final fileId = Uri.decodeComponent(path.substring('/files/'.length, path.length - '/restore'.length));
         await runtime.index.restore(fileId);

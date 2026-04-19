@@ -1,15 +1,44 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Upload, Download, FileText, CloudOff, RefreshCw, File, Trash2, X,
   Image as ImageIcon, Music, Film, FileCode, Archive, FileSpreadsheet,
   Plus, LayoutGrid, List as ListIcon, MoreVertical, Star,
+  Pencil, Info, Filter, Search,
 } from 'lucide-react';
 import { LiveStorageCard } from '@/components/LiveStorageCard';
 
 type FileItem = { id: string; name: string; size: number; mime: string; created_at: number };
 type Stats = { used_bytes: number; allocated_bytes: number; file_count: number };
+type TypeKind = 'all' | 'images' | 'videos' | 'audio' | 'documents' | 'archives' | 'other';
+type DateRange = 'all' | 'today' | 'week' | 'month' | 'year';
+
+function matchesType(f: FileItem, kind: TypeKind): boolean {
+  if (kind === 'all') return true;
+  const ext = (f.name.split('.').pop() ?? '').toLowerCase();
+  if (kind === 'images') return f.mime.startsWith('image/');
+  if (kind === 'videos') return f.mime.startsWith('video/');
+  if (kind === 'audio') return f.mime.startsWith('audio/');
+  if (kind === 'archives') return ['zip','rar','7z','tar','gz','bz2'].includes(ext);
+  if (kind === 'documents') return f.mime === 'application/pdf' || f.mime.startsWith('text/')
+      || ['doc','docx','xls','xlsx','ppt','pptx','rtf','odt','ods','odp','csv','md','txt','pages','numbers','key'].includes(ext);
+  if (kind === 'other') return !matchesType(f, 'images') && !matchesType(f, 'videos')
+      && !matchesType(f, 'audio') && !matchesType(f, 'documents') && !matchesType(f, 'archives');
+  return true;
+}
+
+function dateCutoff(range: DateRange): number {
+  if (range === 'all') return 0;
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  if (range === 'today') return Math.floor(d.getTime() / 1000);
+  if (range === 'week') { d.setDate(d.getDate() - 7); return Math.floor(d.getTime() / 1000); }
+  if (range === 'month') { d.setMonth(d.getMonth() - 1); return Math.floor(d.getTime() / 1000); }
+  if (range === 'year') { d.setFullYear(d.getFullYear() - 1); return Math.floor(d.getTime() / 1000); }
+  return 0;
+}
 
 type UploadJob = {
   id: string;
@@ -51,10 +80,22 @@ export function FilesPanel({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadJob[]>([]);
   const [downloads, setDownloads] = useState<DownloadJob[]>([]);
+  const [renameTarget, setRenameTarget] = useState<FileItem | null>(null);
+  const [infoTarget, setInfoTarget] = useState<FileItem | null>(null);
+  const [typeFilter, setTypeFilter] = useState<TypeKind>('all');
+  const [dateFilter, setDateFilter] = useState<DateRange>('all');
+  const [dragOver, setDragOver] = useState(false);
+  const [localQuery, setLocalQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartY = useRef<number | null>(null);
   const PULL_THRESHOLD = 60;
+
+  // Search query from the top-bar input is mirrored to the URL via ?q=…,
+  // so deep links keep their search and refresh preserves it.
+  const searchParams = useSearchParams();
+  const urlQuery = (searchParams?.get('q') ?? '').trim();
+  const query = (localQuery || urlQuery).toLowerCase();
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setBusy(true);
@@ -99,6 +140,28 @@ export function FilesPanel({
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  }
+
+  async function renameFile(file: FileItem, newName: string) {
+    if (!newName.trim() || newName === file.name) { setRenameTarget(null); return; }
+    setBusy(true);
+    setError(null);
+    const before = files;
+    setFiles(files.map((x) => x.id === file.id ? { ...x, name: newName } : x));
+    try {
+      const r = await fetch(`/api/files/${encodeURIComponent(file.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+    } catch (e) {
+      setFiles(before);
+      setError(`Could not rename (${e instanceof Error ? e.message : 'error'}).`);
+    } finally {
+      setBusy(false);
+      setRenameTarget(null);
+    }
   }
 
   async function deleteFromHost(file: FileItem) {
@@ -237,11 +300,41 @@ export function FilesPanel({
     };
   }, [pullDist, busy, refresh]);
 
-  const visibleFiles = files.filter((f) => !hidden.has(f.id));
+  // Apply search + type + date filters in order. useMemo to avoid
+  // re-filtering the entire list on every keystroke unless the inputs
+  // actually changed.
+  const visibleFiles = useMemo(() => {
+    const cutoff = dateCutoff(dateFilter);
+    return files
+      .filter((f) => !hidden.has(f.id))
+      .filter((f) => typeFilter === 'all' || matchesType(f, typeFilter))
+      .filter((f) => cutoff === 0 || f.created_at >= cutoff)
+      .filter((f) => query === '' || f.name.toLowerCase().includes(query));
+  }, [files, hidden, typeFilter, dateFilter, query]);
 
   return (
     <>
-      <section ref={containerRef} className="rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-5 relative">
+      <section
+        ref={containerRef}
+        className={`rounded-2xl bg-[color:var(--surface)] border p-5 relative transition ${dragOver ? 'border-[color:var(--accent)] ring-2 ring-[color:var(--accent)]/30' : 'border-[color:var(--border)]'}`}
+        onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            onFilesPicked(e.dataTransfer.files);
+          }
+        }}
+      >
+        {dragOver && (
+          <div className="absolute inset-3 z-10 rounded-xl bg-[color:var(--accent-muted)] border-2 border-dashed border-[color:var(--accent)] flex items-center justify-center pointer-events-none">
+            <div className="text-center">
+              <Upload size={32} className="mx-auto mb-2 text-[color:var(--accent)]" />
+              <div className="text-sm font-semibold text-[color:var(--accent)]">Drop to upload</div>
+            </div>
+          </div>
+        )}
         {pullDist > 0 && (
           <div
             className="absolute left-0 right-0 -top-2 flex items-center justify-center pointer-events-none"
@@ -309,6 +402,60 @@ export function FilesPanel({
           </div>
         </div>
 
+        {/* Filters: search + type chips + date dropdown. Search input
+            here is local to this panel; the top-bar global search also
+            feeds in via ?q= URL param so deep-linking works. */}
+        <div className="mb-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
+              <input
+                value={localQuery || urlQuery}
+                onChange={(e) => setLocalQuery(e.target.value)}
+                placeholder="Search files…"
+                className="w-full h-9 pl-9 pr-3 text-[13px] bg-[color:var(--body)] rounded-lg border border-transparent focus:border-[color:var(--accent)] focus:outline-none"
+              />
+            </div>
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as DateRange)}
+              className="h-9 px-3 text-[12px] bg-[color:var(--body)] rounded-lg border border-transparent focus:border-[color:var(--accent)] focus:outline-none cursor-pointer"
+              aria-label="Date range"
+            >
+              <option value="all">Any date</option>
+              <option value="today">Today</option>
+              <option value="week">Past 7 days</option>
+              <option value="month">Past 30 days</option>
+              <option value="year">Past year</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-1 scrollbar-thin">
+            {([
+              { key: 'all', label: 'All', icon: Filter },
+              { key: 'images', label: 'Images', icon: ImageIcon },
+              { key: 'videos', label: 'Videos', icon: Film },
+              { key: 'audio', label: 'Audio', icon: Music },
+              { key: 'documents', label: 'Documents', icon: FileText },
+              { key: 'archives', label: 'Archives', icon: Archive },
+              { key: 'other', label: 'Other', icon: File },
+            ] as const).map((c) => {
+              const active = typeFilter === c.key;
+              const I = c.icon;
+              return (
+                <button
+                  key={c.key}
+                  onClick={() => setTypeFilter(c.key)}
+                  className={`whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-medium transition ${
+                    active
+                      ? 'bg-[color:var(--accent)] text-white'
+                      : 'bg-[color:var(--body)] text-[color:var(--text-muted)] hover:text-[color:var(--text)]'
+                  }`}
+                ><I size={12} /> {c.label}</button>
+              );
+            })}
+          </div>
+        </div>
+
         {error && (
           <div className="mb-3 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">{error}</div>
         )}
@@ -326,6 +473,8 @@ export function FilesPanel({
                 onDownload={() => downloadFile(f)}
                 onDelete={() => setDeleteTarget(f)}
                 onFavorite={() => toggleFavorite(f.id)}
+                onRename={() => setRenameTarget(f)}
+                onInfo={() => setInfoTarget(f)}
               />
             ))}
           </div>
@@ -359,14 +508,16 @@ export function FilesPanel({
                 >
                   <Download size={16} />
                 </button>
-                <button
-                  onClick={() => setDeleteTarget(f)}
-                  className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-red-50 hover:text-red-600"
-                  title="Delete"
-                  aria-label={`Delete ${f.name}`}
-                >
-                  <Trash2 size={16} />
-                </button>
+                <RowMenu
+                  isOpen={openMenu === f.id}
+                  onToggle={() => setOpenMenu(openMenu === f.id ? null : f.id)}
+                  onClose={() => setOpenMenu(null)}
+                  isFav={favorites.has(f.id)}
+                  onRename={() => setRenameTarget(f)}
+                  onInfo={() => setInfoTarget(f)}
+                  onFavorite={() => toggleFavorite(f.id)}
+                  onDelete={() => setDeleteTarget(f)}
+                />
               </li>
             ))}
           </ul>
@@ -380,6 +531,17 @@ export function FilesPanel({
             onDeleteFromHost={() => deleteFromHost(deleteTarget)}
             onHideOnlyHere={() => hideOnlyHere(deleteTarget)}
           />
+        )}
+        {renameTarget && (
+          <RenameModal
+            file={renameTarget}
+            busy={busy}
+            onCancel={() => setRenameTarget(null)}
+            onSave={(name) => renameFile(renameTarget, name)}
+          />
+        )}
+        {infoTarget && (
+          <InfoModal file={infoTarget} onClose={() => setInfoTarget(null)} />
         )}
       </section>
 
@@ -485,7 +647,7 @@ function ProgressRow({
 }
 
 function FileGridCard({
-  file, isFav, isMenuOpen, onMenuToggle, onMenuClose, onDownload, onDelete, onFavorite,
+  file, isFav, isMenuOpen, onMenuToggle, onMenuClose, onDownload, onDelete, onFavorite, onRename, onInfo,
 }: {
   file: FileItem;
   isFav: boolean;
@@ -495,6 +657,8 @@ function FileGridCard({
   onDownload: () => void;
   onDelete: () => void;
   onFavorite: () => void;
+  onRename: () => void;
+  onInfo: () => void;
 }) {
   return (
     <div
@@ -523,19 +687,128 @@ function FileGridCard({
       </button>
       {isMenuOpen && (
         <div
-          className="absolute top-10 right-2 z-20 w-40 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
+          className="absolute top-10 right-2 z-20 w-44 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
           onClick={(e) => e.stopPropagation()}
         >
           <button onClick={() => { onDownload(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Download size={12} /> Download</button>
+          <button onClick={() => { onRename(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Pencil size={12} /> Rename</button>
           <button onClick={() => { onFavorite(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
             <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
             {isFav ? 'Remove from Starred' : 'Add to Starred'}
           </button>
+          <button onClick={() => { onInfo(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Info size={12} /> File info</button>
+          <div className="my-1 border-t border-[color:var(--border)]" />
           <button onClick={() => { onDelete(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2"><Trash2 size={12} /> Delete</button>
         </div>
       )}
     </div>
   );
+}
+
+function RowMenu({
+  isOpen, onToggle, onClose, isFav, onRename, onInfo, onFavorite, onDelete,
+}: {
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  isFav: boolean;
+  onRename: () => void;
+  onInfo: () => void;
+  onFavorite: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="relative">
+      <button
+        onClick={onToggle}
+        className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--accent)]"
+        aria-label="More"
+        title="More"
+      >
+        <MoreVertical size={16} />
+      </button>
+      {isOpen && (
+        <div
+          className="absolute right-0 top-full mt-1 z-20 w-44 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button onClick={() => { onRename(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Pencil size={12} /> Rename</button>
+          <button onClick={() => { onFavorite(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
+            <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
+            {isFav ? 'Remove from Starred' : 'Add to Starred'}
+          </button>
+          <button onClick={() => { onInfo(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Info size={12} /> File info</button>
+          <div className="my-1 border-t border-[color:var(--border)]" />
+          <button onClick={() => { onDelete(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2"><Trash2 size={12} /> Delete</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RenameModal({ file, busy, onCancel, onSave }: { file: FileItem; busy: boolean; onCancel: () => void; onSave: (name: string) => void }) {
+  const [name, setName] = useState(file.name);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel} role="dialog" aria-modal="true">
+      <div className="w-full max-w-sm rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-[15px] font-semibold mb-3">Rename file</h3>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !busy) onSave(name); }}
+          className="w-full h-10 px-3 text-[13px] bg-[color:var(--body)] rounded-lg border border-transparent focus:border-[color:var(--accent)] focus:outline-none mb-4"
+        />
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} disabled={busy} className="px-4 py-2 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]">Cancel</button>
+          <button onClick={() => onSave(name)} disabled={busy || !name.trim() || name === file.name} className="px-4 py-2 text-[12px] font-semibold bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] disabled:opacity-50 text-white rounded-lg">Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoModal({ file, onClose }: { file: FileItem; onClose: () => void }) {
+  const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="w-full max-w-sm rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-[15px] font-semibold">File info</h3>
+          <button onClick={onClose} className="text-[color:var(--text-muted)] hover:text-[color:var(--text)] p-1" aria-label="Close"><X size={16} /></button>
+        </div>
+        <div className="flex items-center gap-3 mb-4">
+          <FilePreview mime={file.mime} name={file.name} />
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium truncate">{file.name}</div>
+            <div className="text-[11px] text-[color:var(--text-muted)]">{file.mime}</div>
+          </div>
+        </div>
+        <dl className="text-[12px] space-y-2">
+          <InfoRow label="Type" value={ext.toUpperCase() || '—'} />
+          <InfoRow label="Size" value={formatBytes(file.size)} />
+          <InfoRow label="Uploaded" value={fmtFullDate(file.created_at)} />
+          <InfoRow label="ID" value={<code className="text-[10px] break-all">{file.id}</code>} />
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex justify-between items-start gap-3">
+      <dt className="text-[color:var(--text-muted)] uppercase tracking-wider text-[10px] pt-0.5">{label}</dt>
+      <dd className="text-right text-[color:var(--text)] flex-1 min-w-0">{value}</dd>
+    </div>
+  );
+}
+
+function fmtFullDate(unix: number) {
+  return new Date(unix * 1000).toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
 }
 
 function DeleteModal({

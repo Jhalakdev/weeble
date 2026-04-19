@@ -75,6 +75,31 @@ export default async function relayRoutes(app) {
     }
   });
 
+  // Rename a file (and in the future: move via parent_id). Body: { name }.
+  app.patch('/v1/relay/files/:id', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+    schema: {
+      body: { type: 'object', properties: { name: { type: 'string', minLength: 1, maxLength: 400 } } },
+    },
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({
+        method: 'PATCH',
+        path: `/files/${encodeURIComponent(req.params.id)}`,
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(JSON.stringify(req.body || {})),
+      });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      return reply.code(502).send({ error: 'rename_failed', detail: String(e.message || e) });
+    }
+  });
+
   // Restore a soft-deleted file (Trash → My Drive).
   app.post('/v1/relay/files/:id/restore', {
     preHandler: [app.requireAuth, app.requireActiveSubscription],
