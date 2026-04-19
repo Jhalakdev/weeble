@@ -6,13 +6,13 @@ import { Home, FolderOpen, Cloud, User } from 'lucide-react';
 
 const TABS = [
   { icon: Home, label: 'Home', href: '/dashboard' },
-  { icon: FolderOpen, label: 'Files', href: '/dashboard#files' },
-  { icon: Cloud, label: 'Devices', href: '/dashboard#devices' },
-  { icon: User, label: 'Account', href: '/dashboard#account' },
+  { icon: FolderOpen, label: 'Files', href: '/dashboard/files' },
+  { icon: Cloud, label: 'Devices', href: '/dashboard/devices' },
+  { icon: User, label: 'Account', href: '/dashboard/account' },
 ];
 
 export function MobileNav() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? '';
   return (
     <nav
       className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[color:var(--surface)] border-t border-[color:var(--border)] px-2 pb-safe"
@@ -20,7 +20,8 @@ export function MobileNav() {
     >
       <div className="flex items-stretch justify-around pt-2">
         {TABS.map((tab) => {
-          const active = pathname === tab.href.split('#')[0];
+          // Exact match for the dashboard root, prefix-match for subroutes.
+          const active = tab.href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(tab.href);
           return (
             <Link
               key={tab.label}

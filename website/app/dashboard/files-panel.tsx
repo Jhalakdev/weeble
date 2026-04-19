@@ -4,8 +4,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Upload, Download, FileText, CloudOff, RefreshCw, File, Trash2, X,
   Image as ImageIcon, Music, Film, FileCode, Archive, FileSpreadsheet,
-  Plus, HardDrive, LayoutGrid, List as ListIcon, MoreVertical, Star,
+  Plus, LayoutGrid, List as ListIcon, MoreVertical, Star,
 } from 'lucide-react';
+import { LiveStorageCard } from '@/components/LiveStorageCard';
 
 type FileItem = { id: string; name: string; size: number; mime: string; created_at: number };
 type Stats = { used_bytes: number; allocated_bytes: number; file_count: number };
@@ -237,10 +238,6 @@ export function FilesPanel({
   }, [pullDist, busy, refresh]);
 
   const visibleFiles = files.filter((f) => !hidden.has(f.id));
-  const usedBytes = stats?.used_bytes ?? visibleFiles.reduce((s, f) => s + f.size, 0);
-  // Cap = whatever the user allocated on their host. We do NOT sell storage —
-  // if they want more, they bump the slider on the host (not a checkout).
-  const cap = stats?.allocated_bytes ?? 0;
 
   return (
     <>
@@ -257,10 +254,12 @@ export function FilesPanel({
           </div>
         )}
 
-        {/* Storage card — visible on every screen size, including phone */}
-        {online && reachable && (
-          <StorageCard usedBytes={usedBytes} capBytes={cap} fileCount={stats?.file_count ?? visibleFiles.length} />
-        )}
+        {/* Storage card — single source of truth, visible on every screen
+            size including phone. Uses the same LiveStorageCard as the
+            sidebar + account page so values match everywhere. */}
+        <div className="mb-4 md:hidden">
+          <LiveStorageCard variant="block" />
+        </div>
 
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -403,42 +402,6 @@ export function FilesPanel({
         <Plus size={26} />
       </button>
     </>
-  );
-}
-
-function StorageCard({ usedBytes, capBytes, fileCount }: { usedBytes: number; capBytes: number; fileCount: number }) {
-  const hasCap = capBytes > 0;
-  const pct = hasCap ? Math.min(100, (usedBytes / capBytes) * 100) : 0;
-  return (
-    <div className="mb-4 rounded-xl border border-[color:var(--border)] bg-[color:var(--accent-muted)] p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-7 h-7 rounded-lg bg-white/70 dark:bg-black/20 flex items-center justify-center text-[color:var(--accent)]">
-          <HardDrive size={14} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-[12px] font-semibold text-[color:var(--text)]">Storage</div>
-          <div className="text-[10px] text-[color:var(--text-muted)]">
-            {hasCap
-              ? `${formatBytes(usedBytes)} of ${formatBytes(capBytes)} used · ${fileCount} file${fileCount === 1 ? '' : 's'}`
-              : `${formatBytes(usedBytes)} used · ${fileCount} file${fileCount === 1 ? '' : 's'}`}
-          </div>
-        </div>
-        {hasCap && (
-          <div className="text-[11px] font-semibold text-[color:var(--accent)]">{pct.toFixed(0)}%</div>
-        )}
-      </div>
-      {hasCap && (
-        <div className="w-full h-1.5 rounded-full bg-white/60 dark:bg-black/20 overflow-hidden">
-          <div
-            className="h-full rounded-full"
-            style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #8F93F6 0%, #6E74F2 100%)', transition: 'width 300ms ease' }}
-          />
-        </div>
-      )}
-      <div className="mt-2 text-[10px] text-[color:var(--text-muted)] leading-relaxed">
-        Storage lives on your computer. To make room for more files, open the Weeber app on your computer → <span className="font-medium">Increase storage</span>.
-      </div>
-    </div>
   );
 }
 

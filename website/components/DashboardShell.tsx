@@ -4,18 +4,22 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
-  LayoutGrid, Link as LinkIcon, Download, DollarSign, Cloud,
-  Bell, Moon, Sun, Settings, Search, Plus, LogOut,
+  LayoutGrid, FolderOpen, Download, DollarSign, Cloud,
+  Bell, Moon, Sun, Settings, Search, Plus, LogOut, User,
 } from 'lucide-react';
 import { HostStatusPill } from './HostStatusPill';
+import { LiveStorageCard } from './LiveStorageCard';
 import { MobileNav } from './MobileNav';
 
 type NavItem = { icon: React.ReactNode; label: string; href: string };
 
+// Sidebar nav. Every item points to a real route — no more bouncing
+// back to /dashboard with hash fragments.
 const NAV_PRIMARY: NavItem[] = [
   { icon: <LayoutGrid size={16} />, label: 'Dashboard', href: '/dashboard' },
-  { icon: <Cloud size={16} />, label: 'Devices', href: '/dashboard' },
-  { icon: <LinkIcon size={16} />, label: 'Shares', href: '/dashboard' },
+  { icon: <FolderOpen size={16} />, label: 'Files', href: '/dashboard/files' },
+  { icon: <Cloud size={16} />, label: 'Devices', href: '/dashboard/devices' },
+  { icon: <User size={16} />, label: 'Account', href: '/dashboard/account' },
   { icon: <Download size={16} />, label: 'Download', href: '/download' },
   { icon: <DollarSign size={16} />, label: 'Pricing', href: '/pricing' },
 ];
@@ -93,7 +97,7 @@ function Sidebar() {
         <SidebarSection items={NAV_PRIMARY} active={pathname} />
       </nav>
       <div className="p-4">
-        <StorageCard />
+        <LiveStorageCard variant="sidebar" />
       </div>
       <div className="px-4 pb-4">
         <button
@@ -111,7 +115,11 @@ function SidebarSection({ items, active }: { items: NavItem[]; active: string | 
   return (
     <ul className="flex flex-col gap-0.5">
       {items.map((it) => {
-        const isActive = active === it.href;
+        // Exact match for /dashboard root, prefix match for subroutes —
+        // /dashboard/files should highlight Files, not Dashboard.
+        const isActive = it.href === '/dashboard'
+          ? active === '/dashboard'
+          : (active ?? '').startsWith(it.href);
         return (
           <li key={it.label}>
             <Link
@@ -129,28 +137,6 @@ function SidebarSection({ items, active }: { items: NavItem[]; active: string | 
         );
       })}
     </ul>
-  );
-}
-
-function StorageCard() {
-  return (
-    <div className="bg-[color:var(--body)] rounded-xl p-3.5">
-      <div className="flex items-center gap-1.5 mb-2.5">
-        <Cloud size={14} className="text-[color:var(--accent)]" />
-        <span className="text-[13px] font-semibold">Storage</span>
-      </div>
-      <div className="text-[11px] text-[color:var(--text-muted)] mb-1.5">17.1 GB / 20 GB Used</div>
-      <div className="h-1 rounded-full bg-[color:var(--border)] overflow-hidden mb-1.5">
-        <div className="h-full rounded-full bg-[color:var(--accent)]" style={{ width: '75%' }} />
-      </div>
-      <div className="text-[10px] text-[color:var(--text-muted)] mb-3">75% Full · 3.9 GB Free</div>
-      <Link
-        href="/pricing"
-        className="block text-center bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] text-white text-[11px] font-medium py-2 rounded-md"
-      >
-        Buy Storage
-      </Link>
-    </div>
   );
 }
 
