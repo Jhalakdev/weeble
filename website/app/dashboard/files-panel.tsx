@@ -8,6 +8,7 @@ import {
   Plus, LayoutGrid, List as ListIcon, MoreVertical, Star,
   Pencil, Info, Filter, Search, Folder as FolderIcon, FolderPlus,
   ChevronRight, Home, Move, Copy as CopyIcon, CheckSquare,
+  Share2, Check, Link as LinkIcon,
 } from 'lucide-react';
 import { LiveStorageCard } from '@/components/LiveStorageCard';
 
@@ -87,6 +88,7 @@ export function FilesPanel({
   const [renameTarget, setRenameTarget] = useState<FileItem | null>(null);
   const [infoTarget, setInfoTarget] = useState<FileItem | null>(null);
   const [previewTarget, setPreviewTarget] = useState<FileItem | null>(null);
+  const [shareTarget, setShareTarget] = useState<FileItem | null>(null);
   const [showFabMenu, setShowFabMenu] = useState(false);
   const [typeFilter, setTypeFilter] = useState<TypeKind>('all');
   const [dateFilter, setDateFilter] = useState<DateRange>('all');
@@ -117,7 +119,17 @@ export function FilesPanel({
   // so deep links keep their search and refresh preserves it.
   const searchParams = useSearchParams();
   const urlQuery = (searchParams?.get('q') ?? '').trim();
+  const previewId = (searchParams?.get('preview') ?? '').trim();
   const query = (localQuery || urlQuery).toLowerCase();
+
+  // Recent-file deep links land here as ?preview=<id>. Once the file
+  // list arrives, auto-open the preview modal for that file.
+  useEffect(() => {
+    if (!previewId || files.length === 0) return;
+    const target = files.find((f) => f.id === previewId);
+    if (target) setPreviewTarget(target);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewId, files.length]);
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setBusy(true);
@@ -651,6 +663,7 @@ export function FilesPanel({
                 onInfo={() => setInfoTarget(f)}
                 onMove={() => setMovePicker({ ids: [f.id] })}
                 onCopy={() => copyFile(f)}
+                onShare={() => setShareTarget(f)}
               />
             ))}
           </div>
@@ -748,6 +761,7 @@ export function FilesPanel({
                     onDelete={() => setDeleteTarget(f)}
                     onMove={() => setMovePicker({ ids: [f.id] })}
                     onCopy={() => copyFile(f)}
+                    onShare={() => setShareTarget(f)}
                   />
                 </li>
               );
@@ -802,6 +816,9 @@ export function FilesPanel({
             onClose={() => setPreviewTarget(null)}
             onDownload={() => downloadFile(previewTarget)}
           />
+        )}
+        {shareTarget && (
+          <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
         )}
         {showNewFolder && (
           <NewFolderModal busy={busy} onCancel={() => setShowNewFolder(false)} onCreate={createFolder} />
@@ -965,7 +982,7 @@ function ProgressRow({
 
 function FileGridCard({
   file, isFav, isFolder: folder, isSelected, isMenuOpen,
-  onSelect, onMenuToggle, onMenuClose, onOpen, onDownload, onDelete, onFavorite, onRename, onInfo, onMove, onCopy,
+  onSelect, onMenuToggle, onMenuClose, onOpen, onDownload, onDelete, onFavorite, onRename, onInfo, onMove, onCopy, onShare,
 }: {
   file: FileItem;
   isFav: boolean;
@@ -983,6 +1000,7 @@ function FileGridCard({
   onInfo: () => void;
   onMove: () => void;
   onCopy: () => void;
+  onShare: () => void;
 }) {
   return (
     <div
@@ -1023,26 +1041,29 @@ function FileGridCard({
       </button>
       {isMenuOpen && (
         <div
-          className="absolute top-10 right-2 z-20 w-48 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
+          className="absolute top-10 right-2 z-20 w-60 rounded-xl bg-[color:var(--surface)] border border-[color:var(--border)] shadow-xl py-1.5 text-[13.5px]"
           onClick={(e) => e.stopPropagation()}
         >
           {!folder && (
-            <button onClick={() => { onDownload(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Download size={12} /> Download</button>
-          )}
-          <button onClick={() => { onRename(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Pencil size={12} /> Rename</button>
-          <button onClick={() => { onMove(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Move size={12} /> Move to…</button>
-          {!folder && (
-            <button onClick={() => { onCopy(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><CopyIcon size={12} /> Make a copy</button>
+            <button onClick={() => { onDownload(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Download size={14} /> Download</button>
           )}
           {!folder && (
-            <button onClick={() => { onFavorite(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
-              <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
+            <button onClick={() => { onShare(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Share2 size={14} /> Get share link</button>
+          )}
+          <button onClick={() => { onRename(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Pencil size={14} /> Rename</button>
+          <button onClick={() => { onMove(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Move size={14} /> Move to…</button>
+          {!folder && (
+            <button onClick={() => { onCopy(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><CopyIcon size={14} /> Make a copy</button>
+          )}
+          {!folder && (
+            <button onClick={() => { onFavorite(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5">
+              <Star size={14} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
               {isFav ? 'Remove from Starred' : 'Add to Starred'}
             </button>
           )}
-          <button onClick={() => { onInfo(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Info size={12} /> File info</button>
+          <button onClick={() => { onInfo(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Info size={14} /> File info</button>
           <div className="my-1 border-t border-[color:var(--border)]" />
-          <button onClick={() => { onDelete(); onMenuClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2"><Trash2 size={12} /> Delete</button>
+          <button onClick={() => { onDelete(); onMenuClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2.5"><Trash2 size={14} /> Delete</button>
         </div>
       )}
     </div>
@@ -1050,7 +1071,7 @@ function FileGridCard({
 }
 
 function RowMenu({
-  isOpen, onToggle, onClose, isFav, isFolder: folder, onRename, onInfo, onFavorite, onDelete, onMove, onCopy,
+  isOpen, onToggle, onClose, isFav, isFolder: folder, onRename, onInfo, onFavorite, onDelete, onMove, onCopy, onShare,
 }: {
   isOpen: boolean;
   onToggle: () => void;
@@ -1063,6 +1084,7 @@ function RowMenu({
   onDelete: () => void;
   onMove: () => void;
   onCopy: () => void;
+  onShare: () => void;
 }) {
   return (
     <div className="relative">
@@ -1076,23 +1098,26 @@ function RowMenu({
       </button>
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-1 z-20 w-48 rounded-lg bg-[color:var(--surface)] border border-[color:var(--border)] shadow-lg py-1 text-[12px]"
+          className="absolute right-0 top-full mt-1 z-20 w-60 rounded-xl bg-[color:var(--surface)] border border-[color:var(--border)] shadow-xl py-1.5 text-[13.5px]"
           onClick={(e) => e.stopPropagation()}
         >
-          <button onClick={() => { onRename(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Pencil size={12} /> Rename</button>
-          <button onClick={() => { onMove(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Move size={12} /> Move to…</button>
           {!folder && (
-            <button onClick={() => { onCopy(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><CopyIcon size={12} /> Make a copy</button>
+            <button onClick={() => { onShare(); onClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Share2 size={14} /> Get share link</button>
+          )}
+          <button onClick={() => { onRename(); onClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Pencil size={14} /> Rename</button>
+          <button onClick={() => { onMove(); onClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Move size={14} /> Move to…</button>
+          {!folder && (
+            <button onClick={() => { onCopy(); onClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><CopyIcon size={14} /> Make a copy</button>
           )}
           {!folder && (
-            <button onClick={() => { onFavorite(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2">
-              <Star size={12} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
+            <button onClick={() => { onFavorite(); onClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5">
+              <Star size={14} className={isFav ? 'text-amber-500' : ''} fill={isFav ? 'currentColor' : 'none'} />
               {isFav ? 'Remove from Starred' : 'Add to Starred'}
             </button>
           )}
-          <button onClick={() => { onInfo(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2"><Info size={12} /> File info</button>
+          <button onClick={() => { onInfo(); onClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-[color:var(--accent-muted)] flex items-center gap-2.5"><Info size={14} /> File info</button>
           <div className="my-1 border-t border-[color:var(--border)]" />
-          <button onClick={() => { onDelete(); onClose(); }} className="w-full text-left px-3 py-1.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2"><Trash2 size={12} /> Delete</button>
+          <button onClick={() => { onDelete(); onClose(); }} className="w-full text-left px-4 py-2.5 hover:bg-red-50 hover:text-red-600 flex items-center gap-2.5"><Trash2 size={14} /> Delete</button>
         </div>
       )}
     </div>
@@ -1134,25 +1159,25 @@ function BulkActionBar({
   // Lifted above MobileNav (~64 px) on mobile so it doesn't disappear
   // behind the bottom tabs. z-50 to clear MobileNav (z-40).
   return (
-    <div className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-50 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-full shadow-xl px-4 py-2 flex items-center gap-2 max-w-[95vw]">
-      <button onClick={onClear} className="p-1.5 rounded-full text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--text)]" aria-label="Clear selection">
-        <X size={14} />
+    <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-full shadow-2xl px-5 py-3 flex items-center gap-2.5 max-w-[95vw]">
+      <button onClick={onClear} className="p-2 rounded-full text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--text)]" aria-label="Clear selection">
+        <X size={16} />
       </button>
-      <span className="text-[12px] font-medium text-[color:var(--text)] mr-1 whitespace-nowrap">{count} selected</span>
+      <span className="text-[13.5px] font-semibold text-[color:var(--text)] mr-1 whitespace-nowrap">{count} selected</span>
       {count < allCount && (
-        <button onClick={onSelectAll} className="hidden sm:inline text-[11px] text-[color:var(--accent)] font-medium hover:underline mr-1 whitespace-nowrap">
+        <button onClick={onSelectAll} className="hidden sm:inline text-[12px] text-[color:var(--accent)] font-semibold hover:underline mr-1 whitespace-nowrap">
           Select all ({allCount})
         </button>
       )}
-      <div className="w-px h-5 bg-[color:var(--border)] mx-1" />
-      <button onClick={onDownload} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]" title="Download selected">
-        <Download size={13} /> <span className="hidden sm:inline">Download</span>
+      <div className="w-px h-6 bg-[color:var(--border)] mx-1.5" />
+      <button onClick={onDownload} className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]" title="Download selected">
+        <Download size={15} /> <span className="hidden sm:inline">Download</span>
       </button>
-      <button onClick={onMove} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]" title="Move selected">
-        <Move size={13} /> <span className="hidden sm:inline">Move</span>
+      <button onClick={onMove} className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-full hover:bg-[color:var(--accent-muted)] text-[color:var(--text)]" title="Move selected">
+        <Move size={15} /> <span className="hidden sm:inline">Move</span>
       </button>
-      <button onClick={onDelete} className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium rounded-full hover:bg-red-50 text-red-600" title="Delete selected">
-        <Trash2 size={13} /> <span className="hidden sm:inline">Delete</span>
+      <button onClick={onDelete} className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-full hover:bg-red-50 text-red-600" title="Delete selected">
+        <Trash2 size={15} /> <span className="hidden sm:inline">Delete</span>
       </button>
     </div>
   );
@@ -1396,6 +1421,108 @@ function PreviewModal({ file, onClose, onDownload }: { file: FileItem; onClose: 
               </button>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Mints a public share URL for the file. The URL contains a
+// cryptographically random ~16-byte token (unguessable). Anyone with the
+// link downloads the file directly from the user's host via the relay
+// tunnel — no copy on the VPS, no password needed.
+function ShareModal({ file, onClose }: { file: FileItem; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [expiresIn, setExpiresIn] = useState<number | null>(null); // null = never
+
+  async function mint(expiresInSeconds: number | null) {
+    setLoading(true); setError(null); setUrl(null); setCopied(false);
+    try {
+      const r = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_id: file.id,
+          file_name: file.name,
+          mime: file.mime,
+          size_bytes: file.size,
+          ...(expiresInSeconds ? { expires_in_seconds: expiresInSeconds } : {}),
+        }),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      const body = await r.json();
+      setUrl(body.url ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { mint(null); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  function copy() {
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-[15px] font-bold tracking-tight flex items-center gap-2"><Share2 size={16} /> Share &ldquo;{file.name}&rdquo;</h3>
+          <button onClick={onClose} className="text-[color:var(--text-muted)] hover:text-[color:var(--text)] p-1" aria-label="Close"><X size={16} /></button>
+        </div>
+
+        <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--body)] p-3 mb-3 min-h-[60px] flex items-center gap-2">
+          <LinkIcon size={14} className="text-[color:var(--text-muted)] flex-shrink-0" />
+          <input
+            readOnly
+            value={loading ? 'Generating link…' : (url ?? '')}
+            placeholder={error ? `Error: ${error}` : 'Generating link…'}
+            className="flex-1 min-w-0 bg-transparent text-[12px] font-mono text-[color:var(--text)] outline-none truncate"
+          />
+          <button
+            onClick={copy}
+            disabled={!url || loading}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-semibold bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] disabled:opacity-50 text-white rounded-md whitespace-nowrap"
+          >
+            {copied ? (<><Check size={13} /> Copied</>) : (<><CopyIcon size={13} /> Copy</>)}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 mb-3">
+          <label className="text-[11px] text-[color:var(--text-muted)] font-medium">Expires:</label>
+          <select
+            value={expiresIn ?? 'never'}
+            onChange={(e) => {
+              const v = e.target.value === 'never' ? null : Number(e.target.value);
+              setExpiresIn(v);
+              mint(v);
+            }}
+            className="text-[12px] bg-[color:var(--body)] border border-[color:var(--border)] rounded-md px-2 py-1 cursor-pointer"
+          >
+            <option value="never">Never</option>
+            <option value={3600}>1 hour</option>
+            <option value={86400}>24 hours</option>
+            <option value={604800}>7 days</option>
+            <option value={2592000}>30 days</option>
+          </select>
+        </div>
+
+        <div className="text-[11px] text-[color:var(--text-muted)] leading-relaxed bg-[color:var(--accent-muted)] rounded-lg p-3">
+          <div className="font-semibold text-[color:var(--text)] mb-1">How sharing works</div>
+          Anyone with this link can download the file. The link contains a random,
+          unguessable token — no one can stumble onto it. The file is streamed
+          directly from your computer through the relay tunnel; no copy ever
+          lives on our servers. You can revoke the link any time from
+          <span className="font-medium text-[color:var(--text)]"> /dashboard/account</span>.
         </div>
       </div>
     </div>
