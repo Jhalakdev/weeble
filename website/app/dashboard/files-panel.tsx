@@ -1055,7 +1055,7 @@ function FileGridCard({
       </button>
       {isMenuOpen && (
         <div
-          className="absolute top-10 right-2 z-20 w-60 rounded-xl bg-[color:var(--surface)] border border-[color:var(--border)] shadow-xl py-1.5 text-[13.5px]"
+          className="absolute top-10 right-2 z-50 w-60 rounded-xl bg-[color:var(--surface)] border border-[color:var(--border)] shadow-xl py-1.5 text-[13.5px]"
           onClick={(e) => e.stopPropagation()}
         >
           {!folder && (
@@ -1100,9 +1100,25 @@ function RowMenu({
   onCopy: () => void;
   onShare: () => void;
 }) {
+  // If there isn't enough room below the ⋯ button, open the menu
+  // upward instead. Otherwise a tap on the last row buries the menu
+  // behind the MobileNav bottom tabs (and the user can't scroll to
+  // reach it because the menu is anchored to the button).
+  // Accounts for the ~64 px bottom nav strip + a safety pad.
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [flipUp, setFlipUp] = useState(false);
+  useEffect(() => {
+    if (!isOpen || !btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom - 64 /* bottom nav */ - 8;
+    const menuHeight = 330; // worst-case (8 items + separator + padding)
+    setFlipUp(spaceBelow < menuHeight);
+  }, [isOpen]);
+
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         onClick={onToggle}
         className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--accent)]"
         aria-label="More"
@@ -1112,7 +1128,7 @@ function RowMenu({
       </button>
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-1 z-20 w-60 rounded-xl bg-[color:var(--surface)] border border-[color:var(--border)] shadow-xl py-1.5 text-[13.5px]"
+          className={`absolute right-0 ${flipUp ? 'bottom-full mb-1' : 'top-full mt-1'} z-50 w-60 rounded-xl bg-[color:var(--surface)] border border-[color:var(--border)] shadow-xl py-1.5 text-[13.5px]`}
           onClick={(e) => e.stopPropagation()}
         >
           {!folder && (
