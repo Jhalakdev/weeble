@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { api } from '@/lib/api';
 import { getSessionToken } from '@/lib/session';
+import { LiveStorageCard } from '@/components/LiveStorageCard';
 import { DeviceIcon } from '../client-bits';
 
 function fmtAgo(unix: number) {
@@ -22,13 +23,15 @@ export default async function DashboardDevicesPage() {
   const devices = devicesRes.devices;
 
   return (
-    <div className="px-4 md:px-6 py-4 md:py-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Devices</h1>
-          <p className="text-xs text-[color:var(--text-muted)] mt-0.5">{devices.length} device{devices.length === 1 ? '' : 's'} on this account</p>
-        </div>
+    <div className="px-3 md:px-6 py-3 md:py-6 space-y-4">
+      <div>
+        <h1 className="text-xl font-semibold">Devices</h1>
+        <p className="text-xs text-[color:var(--text-muted)] mt-0.5">{devices.length} device{devices.length === 1 ? '' : 's'} on this account</p>
       </div>
+
+      {/* Storage lives here on mobile (was in the Files tab). Single
+          source of truth via LiveStorageCard. */}
+      <LiveStorageCard variant="block" />
       {devices.length === 0 ? (
         <div className="rounded-2xl bg-[color:var(--surface)] border border-[color:var(--border)] p-8 text-center">
           <div className="text-sm font-semibold mb-1">No devices yet</div>

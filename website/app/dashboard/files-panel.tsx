@@ -101,6 +101,11 @@ export function FilesPanel({
   const [movePicker, setMovePicker] = useState<{ ids: string[] } | null>(null);
   const [dragRowId, setDragRowId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
+  // Lazy-load: render 12 rows at a time and grow as the sentinel
+  // scrolls into view. Resets whenever the filtered set changes.
+  const [visibleCount, setVisibleCount] = useState(12);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const PAGE = 12;
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartY = useRef<number | null>(null);
@@ -434,6 +439,28 @@ export function FilesPanel({
     });
   }, [files, hidden, typeFilter, dateFilter, query]);
 
+  // The slice we actually render. Lazy-load grows by PAGE each time.
+  const renderedFiles = visibleFiles.slice(0, visibleCount);
+  const hasMore = visibleCount < visibleFiles.length;
+
+  // Reset page count when filter inputs change (otherwise switching
+  // from "All" to "Images" leaves an arbitrary previous count).
+  useEffect(() => { setVisibleCount(PAGE); }, [typeFilter, dateFilter, query, currentFolder]);
+
+  // Auto-load more when sentinel scrolls into view (~ infinite scroll).
+  useEffect(() => {
+    if (!hasMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setVisibleCount((c) => Math.min(visibleFiles.length, c + PAGE));
+      }
+    }, { rootMargin: '200px' });
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [hasMore, visibleFiles.length]);
+
   return (
     <>
       <section
@@ -469,12 +496,9 @@ export function FilesPanel({
           </div>
         )}
 
-        {/* Storage card — single source of truth, visible on every screen
-            size including phone. Uses the same LiveStorageCard as the
-            sidebar + account page so values match everywhere. */}
-        <div className="mb-4 md:hidden">
-          <LiveStorageCard variant="block" />
-        </div>
+        {/* Storage card moved to /dashboard/devices on mobile — Files tab
+            keeps focus on the file list (per user request). The desktop
+            sidebar still shows live storage. */}
 
         {/* Breadcrumbs — Home / folder / sub-folder. Click any segment to jump. */}
         <Breadcrumbs path={path} onHome={() => navigateTo(null)} onJump={(id) => navigateTo(id)} />
@@ -535,24 +559,25 @@ export function FilesPanel({
           </div>
         </div>
 
-        {/* Filters: search + type chips + date dropdown. Search input
-            here is local to this panel; the top-bar global search also
-            feeds in via ?q= URL param so deep-linking works. */}
+        {/* Filters: prominent YouTube-sized search bar + day selector,
+            then type chips. Search input here is local to this panel;
+            the top-bar global search also feeds in via ?q= URL param. */}
         <div className="mb-3 space-y-2">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
+              <Search size={18} className="md:hidden absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
+              <Search size={14} className="hidden md:block absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
               <input
                 value={localQuery || urlQuery}
                 onChange={(e) => setLocalQuery(e.target.value)}
-                placeholder="Search files…"
-                className="w-full h-9 pl-9 pr-3 text-[13px] bg-[color:var(--body)] rounded-lg border border-transparent focus:border-[color:var(--accent)] focus:outline-none"
+                placeholder="Search your files"
+                className="w-full h-12 md:h-9 pl-11 md:pl-9 pr-4 md:pr-3 text-[15px] md:text-[13px] bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none"
               />
             </div>
             <select
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value as DateRange)}
-              className="h-9 px-3 text-[12px] bg-[color:var(--body)] rounded-lg border border-transparent focus:border-[color:var(--accent)] focus:outline-none cursor-pointer"
+              className="h-12 md:h-9 px-4 md:px-3 text-[13px] md:text-[12px] bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none cursor-pointer"
               aria-label="Date range"
             >
               <option value="all">Any date</option>
@@ -595,7 +620,7 @@ export function FilesPanel({
 
         {!online ? <OfflineState /> : !reachable ? <UnreachableState /> : visibleFiles.length === 0 ? <EmptyState onPick={() => inputRef.current?.click()} /> : view === 'grid' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {visibleFiles.map((f) => (
+            {renderedFiles.map((f) => (
               <FileGridCard
                 key={f.id}
                 file={f}
@@ -619,7 +644,7 @@ export function FilesPanel({
           </div>
         ) : (
           <ul className="divide-y divide-[color:var(--border)]">
-            {visibleFiles.map((f) => {
+            {renderedFiles.map((f) => {
               const folder = isFolder(f);
               const isSel = selected.has(f.id);
               const isDropTarget = folder && dropTargetFolderId === f.id && dragRowId !== null;
@@ -716,6 +741,14 @@ export function FilesPanel({
               );
             })}
           </ul>
+        )}
+
+        {/* Lazy-load sentinel — when this scrolls into view, the next
+            12 files render. Shown only when there are more to load. */}
+        {hasMore && (
+          <div ref={sentinelRef} className="py-6 text-center text-[12px] text-[color:var(--text-muted)]">
+            Loading more… ({visibleFiles.length - visibleCount} remaining)
+          </div>
         )}
 
         {deleteTarget && (
