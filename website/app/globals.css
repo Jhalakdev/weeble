@@ -52,3 +52,14 @@ html, body {
   background: var(--body);
   color: var(--text-primary);
 }
+
+/* FAB action sheet rise — used by the mobile + button on Files. */
+@keyframes fab-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Mobile chip / pill scrollbar polish. */
+.scrollbar-thin::-webkit-scrollbar { height: 4px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }

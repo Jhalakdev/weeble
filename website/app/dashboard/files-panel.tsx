@@ -579,17 +579,26 @@ export function FilesPanel({
             live in the toolbar above. Search input also feeds in from
             the top-bar global ?q= URL param so deep-linking works. */}
         <div className="mb-3 space-y-2">
-          <div className="relative">
-            <Search size={18} className="md:hidden absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
+          <div className="relative group">
+            {/* Subtle glow on focus — premium feel without being loud. */}
+            <div className="md:hidden absolute -inset-0.5 rounded-full bg-[color:var(--accent)]/0 group-focus-within:bg-[color:var(--accent)]/20 blur-md transition-all duration-300 pointer-events-none" />
+            <Search size={18} className="md:hidden absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)] group-focus-within:text-[color:var(--accent)] transition-colors z-10" />
             <Search size={14} className="hidden md:block absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)]" />
             <input
               value={localQuery || urlQuery}
               onChange={(e) => setLocalQuery(e.target.value)}
               placeholder="Search your files"
-              className="w-full h-12 md:h-9 pl-11 md:pl-9 pr-4 md:pr-3 text-[15px] md:text-[13px] bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none"
+              className="relative w-full h-12 md:h-9 pl-11 md:pl-9 pr-12 md:pr-3 text-[15px] md:text-[13px] bg-[color:var(--surface)] md:bg-[color:var(--body)] rounded-full md:rounded-lg border border-[color:var(--border)] md:border-transparent focus:border-[color:var(--accent)] focus:outline-none shadow-sm md:shadow-none transition-all"
             />
+            {(localQuery || urlQuery) && (
+              <button
+                onClick={() => setLocalQuery('')}
+                className="md:hidden absolute right-2 top-1/2 -translate-y-1/2 z-10 p-1.5 rounded-full text-[color:var(--text-muted)] hover:bg-[color:var(--accent-muted)] hover:text-[color:var(--text)]"
+                aria-label="Clear search"
+              ><X size={16} /></button>
+            )}
           </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-1 scrollbar-thin">
+          <div className="flex items-center gap-2 overflow-x-auto -mx-1 px-1 pb-1.5 scrollbar-thin">
             {([
               { key: 'all', label: 'All', icon: Filter },
               { key: 'images', label: 'Images', icon: ImageIcon },
@@ -605,12 +614,12 @@ export function FilesPanel({
                 <button
                   key={c.key}
                   onClick={() => setTypeFilter(c.key)}
-                  className={`whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-medium transition ${
+                  className={`whitespace-nowrap inline-flex items-center gap-1.5 px-3.5 py-1.5 md:py-1 rounded-full text-[12px] md:text-[11.5px] font-medium transition-all duration-200 active:scale-95 ${
                     active
-                      ? 'bg-[color:var(--accent)] text-white'
-                      : 'bg-[color:var(--body)] text-[color:var(--text-muted)] hover:text-[color:var(--text)]'
+                      ? 'bg-[color:var(--accent)] text-white shadow-md shadow-[color:var(--accent)]/30 ring-1 ring-[color:var(--accent)]'
+                      : 'bg-[color:var(--surface)] md:bg-[color:var(--body)] text-[color:var(--text-muted)] border border-[color:var(--border)] md:border-transparent hover:text-[color:var(--text)] hover:border-[color:var(--accent)]/30'
                   }`}
-                ><I size={12} /> {c.label}</button>
+                ><I size={13} /> {c.label}</button>
               );
             })}
           </div>
@@ -669,7 +678,7 @@ export function FilesPanel({
                     }
                     setDragRowId(null);
                   } : undefined}
-                  className={`group flex items-center gap-3 py-3.5 md:py-3 px-1 md:px-2 rounded-lg transition cursor-default ${
+                  className={`group flex items-center gap-3 py-3 md:py-3 px-2 rounded-xl transition-all duration-150 cursor-default active:scale-[0.985] active:bg-[color:var(--accent-muted)]/60 ${
                     isDropTarget ? 'bg-[color:var(--accent-muted)] ring-2 ring-[color:var(--accent)]'
                     : isSel ? 'bg-[color:var(--accent-muted)]'
                     : 'hover:bg-[color:var(--accent-muted)]/40'
@@ -688,9 +697,9 @@ export function FilesPanel({
                     className="flex-1 min-w-0 flex items-center gap-3 text-left"
                   >
                     {folder ? (
-                      <div className="w-[54px] h-[54px] md:w-10 md:h-10 rounded-xl md:rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7' }}>
-                        <FolderIcon size={26} className="text-amber-600 md:hidden" fill="#FDE68A" />
-                        <FolderIcon size={18} className="text-amber-600 hidden md:block" fill="#FDE68A" />
+                      <div className="w-[54px] h-[54px] md:w-10 md:h-10 rounded-2xl md:rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #FDE68A 0%, #FCD34D 100%)' }}>
+                        <FolderIcon size={26} className="text-amber-700 md:hidden drop-shadow-sm" fill="#FBBF24" />
+                        <FolderIcon size={18} className="text-amber-700 hidden md:block" fill="#FBBF24" />
                       </div>
                     ) : (
                       <div className="md:hidden"><FilePreview mime={f.mime} name={f.name} size={54} /></div>
@@ -819,35 +828,40 @@ export function FilesPanel({
         onClearDownload={(id) => setDownloads((d) => d.filter((x) => x.id !== id))}
       />
 
-      {/* Floating action button — visible on phone where the inline
-          buttons are hidden. Lifted above MobileNav (~64 px) and z-50
-          so it sits ABOVE the bottom tabs (which are z-40). */}
+      {/* Floating action button — lifted above MobileNav (z-50 vs nav's
+          z-40) with a soft glow so it reads as the primary action. */}
       <button
         onClick={() => setShowFabMenu((s) => !s)}
         disabled={!online}
-        className="sm:hidden fixed right-5 bottom-20 z-50 w-14 h-14 rounded-full text-white shadow-lg disabled:opacity-50 flex items-center justify-center transition-transform"
-        style={{ background: 'linear-gradient(135deg, #8F93F6 0%, #6E74F2 100%)', transform: showFabMenu ? 'rotate(45deg)' : 'none' }}
+        className="sm:hidden fixed right-5 bottom-20 z-50 w-14 h-14 rounded-full text-white disabled:opacity-50 flex items-center justify-center transition-transform duration-200 active:scale-95"
+        style={{
+          background: 'linear-gradient(135deg, #8F93F6 0%, #6E74F2 100%)',
+          boxShadow: '0 8px 24px -4px rgba(110, 116, 242, 0.5), 0 4px 8px -2px rgba(0, 0, 0, 0.1)',
+          transform: showFabMenu ? 'rotate(45deg)' : 'none',
+        }}
         aria-label={showFabMenu ? 'Close create menu' : 'Create new'}
       >
-        <Plus size={26} />
+        <Plus size={26} strokeWidth={2.5} />
       </button>
 
       {/* FAB action sheet — Upload files / New folder. */}
       {showFabMenu && (
         <>
-          <div className="sm:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setShowFabMenu(false)} />
-          <div className="sm:hidden fixed right-5 bottom-40 z-50 flex flex-col gap-2 items-end">
+          <div className="sm:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setShowFabMenu(false)} />
+          <div className="sm:hidden fixed right-5 bottom-40 z-50 flex flex-col gap-2.5 items-end" style={{ animation: 'fab-rise 0.18s ease-out' }}>
             <button
               onClick={() => { setShowFabMenu(false); inputRef.current?.click(); }}
-              className="inline-flex items-center gap-2 bg-[color:var(--surface)] border border-[color:var(--border)] text-[color:var(--text)] text-[13px] font-medium px-4 py-2.5 rounded-full shadow-lg"
+              className="inline-flex items-center gap-2.5 bg-[color:var(--surface)] border border-[color:var(--border)] text-[color:var(--text)] text-[13px] font-semibold pl-3 pr-5 py-3 rounded-full shadow-xl active:scale-95 transition-transform"
             >
-              <Upload size={16} className="text-[color:var(--accent)]" /> Upload files
+              <span className="w-8 h-8 rounded-full bg-[color:var(--accent-muted)] text-[color:var(--accent)] flex items-center justify-center"><Upload size={15} /></span>
+              Upload files
             </button>
             <button
               onClick={() => { setShowFabMenu(false); setShowNewFolder(true); }}
-              className="inline-flex items-center gap-2 bg-[color:var(--surface)] border border-[color:var(--border)] text-[color:var(--text)] text-[13px] font-medium px-4 py-2.5 rounded-full shadow-lg"
+              className="inline-flex items-center gap-2.5 bg-[color:var(--surface)] border border-[color:var(--border)] text-[color:var(--text)] text-[13px] font-semibold pl-3 pr-5 py-3 rounded-full shadow-xl active:scale-95 transition-transform"
             >
-              <FolderPlus size={16} className="text-[color:var(--accent)]" /> New folder
+              <span className="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center"><FolderPlus size={15} /></span>
+              New folder
             </button>
           </div>
         </>
@@ -1265,27 +1279,32 @@ function PreviewModal({ file, onClose, onDownload }: { file: FileItem; onClose: 
   const isVideo = file.mime.startsWith('video/');
   const isAudio = file.mime.startsWith('audio/');
   const isPdf = file.mime === 'application/pdf';
-  const isText = file.mime.startsWith('text/') || ['md','json','yaml','yml','csv','log','txt'].includes(ext);
+  const isCsv = ext === 'csv' || file.mime === 'text/csv';
+  const isText = !isCsv && (file.mime.startsWith('text/') || ['md','json','yaml','yml','log','txt'].includes(ext));
 
-  // Text files: fetch and show as <pre>. Images/PDF/video/audio: stream
-  // directly via /api/files/:id (browser handles content-type).
+  // Universal "loaded?" state. Set true when the underlying element
+  // fires onLoad / onCanPlay (or the fetch completes for text/CSV).
+  // Spinner overlay shows until this flips, so the modal never feels
+  // frozen — even on a slow phone with a big image.
+  const [loaded, setLoaded] = useState(isImage || isVideo || isAudio || isPdf ? false : true);
   const [text, setText] = useState<string | null>(null);
   const [textErr, setTextErr] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!isText) return;
+    if (!(isText || isCsv)) return;
     let alive = true;
     (async () => {
       try {
         const r = await fetch(url);
         if (!r.ok) throw new Error(`${r.status}`);
         const t = await r.text();
-        if (alive) setText(t);
+        if (alive) { setText(t); setLoaded(true); }
       } catch (e) {
-        if (alive) setTextErr(String(e));
+        if (alive) { setTextErr(String(e)); setLoaded(true); }
       }
     })();
     return () => { alive = false; };
-  }, [isText, url]);
+  }, [isText, isCsv, url]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-6" onClick={onClose} role="dialog" aria-modal="true">
@@ -1305,26 +1324,55 @@ function PreviewModal({ file, onClose, onDownload }: { file: FileItem; onClose: 
             <button onClick={onClose} className="text-[color:var(--text-muted)] hover:text-[color:var(--text)] p-2" aria-label="Close"><X size={18} /></button>
           </div>
         </div>
-        <div className="flex-1 min-h-0 bg-[color:var(--body)] flex items-center justify-center overflow-auto">
-          {isImage ? (
-            <img src={url} alt={file.name} className="max-w-full max-h-full object-contain" />
-          ) : isVideo ? (
-            <video src={url} controls className="max-w-full max-h-full" />
-          ) : isAudio ? (
-            <div className="p-6 w-full max-w-md">
-              <audio src={url} controls className="w-full" />
+        <div className="flex-1 min-h-0 bg-[color:var(--body)] relative flex items-center justify-center overflow-auto">
+          {/* Loader overlay — visible until `loaded` flips true. */}
+          {!loaded && !textErr && <PreviewSpinner />}
+          {textErr && (
+            <div className="text-[12px] text-red-600 py-12 px-4 text-center">Could not load: {textErr}</div>
+          )}
+
+          {isImage && (
+            <img
+              src={url}
+              alt={file.name}
+              onLoad={() => setLoaded(true)}
+              onError={() => { setLoaded(true); setTextErr('image failed'); }}
+              className={`max-w-full max-h-full object-contain transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+            />
+          )}
+          {isVideo && (
+            <video
+              src={url}
+              controls
+              onLoadedData={() => setLoaded(true)}
+              onError={() => { setLoaded(true); setTextErr('video failed'); }}
+              className={`max-w-full max-h-full transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+            />
+          )}
+          {isAudio && (
+            <div className={`p-6 w-full max-w-md transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}>
+              <audio
+                src={url}
+                controls
+                onLoadedData={() => setLoaded(true)}
+                onError={() => { setLoaded(true); setTextErr('audio failed'); }}
+                className="w-full"
+              />
             </div>
-          ) : isPdf ? (
-            <iframe src={url} className="w-full h-full bg-white" title={file.name} />
-          ) : isText ? (
-            text == null && !textErr ? (
-              <div className="text-[12px] text-[color:var(--text-muted)] py-12">Loading…</div>
-            ) : textErr ? (
-              <div className="text-[12px] text-red-600 py-12">Could not load: {textErr}</div>
-            ) : (
-              <pre className="w-full h-full p-4 text-[12px] font-mono whitespace-pre-wrap overflow-auto text-[color:var(--text)]">{text}</pre>
-            )
-          ) : (
+          )}
+          {isPdf && (
+            <iframe
+              src={url}
+              onLoad={() => setLoaded(true)}
+              title={file.name}
+              className={`w-full h-full bg-white transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+            />
+          )}
+          {isCsv && text != null && <CsvTable raw={text} />}
+          {isText && text != null && (
+            <pre className="w-full h-full p-4 text-[12px] font-mono whitespace-pre-wrap overflow-auto text-[color:var(--text)]">{text}</pre>
+          )}
+          {!isImage && !isVideo && !isAudio && !isPdf && !isText && !isCsv && (
             <div className="text-center p-8">
               <File size={48} className="mx-auto mb-3 text-[color:var(--text-muted)]" />
               <div className="text-[13px] font-semibold mb-1">No preview available</div>
@@ -1336,6 +1384,81 @@ function PreviewModal({ file, onClose, onDownload }: { file: FileItem; onClose: 
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function PreviewSpinner() {
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-3 z-10">
+      <div className="w-10 h-10 rounded-full border-2 border-[color:var(--border)] border-t-[color:var(--accent)] animate-spin" />
+      <div className="text-[11px] text-[color:var(--text-muted)] font-medium">Loading preview…</div>
+    </div>
+  );
+}
+
+// Tiny CSV parser — handles quoted fields with embedded commas + double-quote
+// escapes ("foo,""bar"""). Big enough for spreadsheets exported by Excel/Sheets;
+// not aiming for full RFC 4180 compliance.
+function parseCsv(raw: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (raw[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      row.push(field); field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      // Treat \r\n as a single newline
+      if (ch === '\r' && raw[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else {
+      field += ch;
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.length > 1 || (r.length === 1 && r[0] !== ''));
+}
+
+function CsvTable({ raw }: { raw: string }) {
+  const rows = useMemo(() => parseCsv(raw).slice(0, 1000), [raw]);
+  if (rows.length === 0) {
+    return <div className="text-[12px] text-[color:var(--text-muted)] py-12">Empty CSV</div>;
+  }
+  const [header, ...body] = rows;
+  return (
+    <div className="w-full h-full overflow-auto p-3">
+      <table className="min-w-full text-[12px] border-collapse">
+        <thead className="sticky top-0 bg-[color:var(--surface)] z-10">
+          <tr>
+            {header.map((cell, i) => (
+              <th key={i} className="px-3 py-2 text-left font-semibold border-b border-[color:var(--border)] whitespace-nowrap">{cell}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, ri) => (
+            <tr key={ri} className={ri % 2 === 0 ? 'bg-[color:var(--body)]' : 'bg-[color:var(--surface)]'}>
+              {header.map((_, ci) => (
+                <td key={ci} className="px-3 py-1.5 border-b border-[color:var(--border)] whitespace-nowrap text-[color:var(--text)]">{row[ci] ?? ''}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {parseCsv(raw).length > 1000 && (
+        <div className="text-center text-[10px] text-[color:var(--text-muted)] py-3">First 1,000 rows shown — download the file to see the rest.</div>
+      )}
     </div>
   );
 }
