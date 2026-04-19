@@ -25,6 +25,7 @@ class HostLifecycle {
   HostServer? _server;
   Timer? _heartbeat;
   Timer? _retry;
+  Timer? _snapshot;
   HostCertificate? _cert;
   int? _externalPort;
   int? _localPort;
@@ -229,6 +230,20 @@ class HostLifecycle {
       _scheduleRetry();
     }
 
+    // Storage history: take an immediate snapshot so the chart has data
+    // even on day 1, then a daily tick to write today's value. Idempotent
+    // per UTC day.
+    try {
+      await runtime.index.recordStorageSnapshot();
+    } catch (_) {}
+    _snapshot?.cancel();
+    _snapshot = Timer.periodic(const Duration(hours: 6), (_) async {
+      try {
+        final r = await ref.read(hostRuntimeProvider.future);
+        await r?.index.recordStorageSnapshot();
+      } catch (_) {}
+    });
+
     // STEP 6 — start the persistent reverse tunnel to the VPS.
     // This is what makes the host reachable from phone/web without ANY
     // router config. Survives router restart, network change, VPS restart
@@ -320,8 +335,10 @@ class HostLifecycle {
   Future<void> stop() async {
     _heartbeat?.cancel();
     _retry?.cancel();
+    _snapshot?.cancel();
     _heartbeat = null;
     _retry = null;
+    _snapshot = null;
     await _server?.stop();
     _server = null;
     try { await ref.read(hostTunnelProvider).stop(); } catch (_) {}

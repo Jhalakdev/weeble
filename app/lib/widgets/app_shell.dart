@@ -340,7 +340,7 @@ class _SidebarStorageCardState extends ConsumerState<_SidebarStorageCard> {
             const SizedBox(height: 24, child: LinearProgressIndicator()),
           const SizedBox(height: 12),
           FilledButton(
-            onPressed: () {},
+            onPressed: () => GoRouter.of(context).push('/onboarding/storage?reallocate=1'),
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.accent,
               minimumSize: const Size.fromHeight(32),
@@ -348,7 +348,7 @@ class _SidebarStorageCardState extends ConsumerState<_SidebarStorageCard> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               textStyle: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w500),
             ),
-            child: const Text('Buy Storage'),
+            child: const Text('Increase storage'),
           ),
         ],
       ),

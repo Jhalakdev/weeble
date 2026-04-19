@@ -18,6 +18,42 @@ import { audit, ipOf } from '../lib/audit.js';
 const UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
 export default async function relayRoutes(app) {
+  // Storage usage on the host (used / allocated bytes + file count).
+  // Drives the storage card on phone/web — the host computes this in O(1)
+  // via a SUM query in FileIndex.
+  app.get('/v1/relay/stats', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({ method: 'GET', path: '/stats' });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      return reply.code(502).send({ error: 'stats_failed', detail: String(e.message || e) });
+    }
+  });
+
+  // Storage history (last 30 daily snapshots) for the chart.
+  app.get('/v1/relay/storage-history', {
+    preHandler: [app.requireAuth, app.requireActiveSubscription],
+  }, async (req, reply) => {
+    const conn = tunnelHub.get(req.auth.accountId);
+    if (!conn) return reply.code(503).send({ error: 'host_offline' });
+    try {
+      const res = await conn.request({ method: 'GET', path: '/storage-history' });
+      const body = await readAll(res.bodyStream);
+      reply.code(res.status);
+      reply.header('content-type', 'application/json');
+      return reply.send(body);
+    } catch (e) {
+      return reply.code(502).send({ error: 'history_failed', detail: String(e.message || e) });
+    }
+  });
+
   // List files on the user's host.
   app.get('/v1/relay/files', {
     preHandler: [app.requireAuth, app.requireActiveSubscription],

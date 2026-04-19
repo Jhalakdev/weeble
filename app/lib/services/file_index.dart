@@ -59,7 +59,7 @@ class FileIndex {
     final dbPath = p.join(storageRoot, '.weeber.db');
     final db = await openDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE files (
@@ -73,9 +73,54 @@ class FileIndex {
           )
         ''');
         await db.execute('CREATE INDEX idx_files_parent ON files(parent_id, deleted_at)');
+        await db.execute('''
+          CREATE TABLE storage_history (
+            day INTEGER PRIMARY KEY,
+            used_bytes INTEGER NOT NULL
+          )
+        ''');
+      },
+      onUpgrade: (db, from, to) async {
+        if (from < 2) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS storage_history (
+              day INTEGER PRIMARY KEY,
+              used_bytes INTEGER NOT NULL
+            )
+          ''');
+        }
       },
     );
     return FileIndex._(db);
+  }
+
+  /// Records today's used-bytes total. Idempotent per UTC day — calling it
+  /// twice in the same day just overwrites the previous value with the
+  /// latest. Cheap (single SUM + single UPSERT).
+  Future<void> recordStorageSnapshot() async {
+    final used = await totalSize();
+    final today = _utcDayKey(DateTime.now());
+    await _db.insert(
+      'storage_history',
+      {'day': today, 'used_bytes': used},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Returns at most [days] of history, most recent first. Each entry is
+  /// `{day: <YYYYMMDD as int>, used_bytes: <int>}`.
+  Future<List<Map<String, Object?>>> storageHistory({int days = 30}) async {
+    final rows = await _db.query(
+      'storage_history',
+      orderBy: 'day DESC',
+      limit: days,
+    );
+    return rows;
+  }
+
+  static int _utcDayKey(DateTime t) {
+    final u = t.toUtc();
+    return u.year * 10000 + u.month * 100 + u.day;
   }
 
   Future<void> insert(FileEntry e) async {

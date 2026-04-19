@@ -44,8 +44,19 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
   }
 
   Future<void> _init() async {
-    final dir = await getApplicationSupportDirectory();
-    setState(() => _path = p.join(dir.path, 'storage'));
+    // Pre-fill from existing config if user is here via "Increase storage"
+    // (post-onboarding) — otherwise fall back to the OS support directory.
+    final cfg = ref.read(appConfigProvider);
+    if (cfg.storagePath != null) {
+      _path = cfg.storagePath;
+      if (cfg.allocatedBytes != null && cfg.allocatedBytes! > 0) {
+        _gb = (cfg.allocatedBytes! / (1024 * 1024 * 1024)).round().clamp(_minGb, 20 * 1024);
+      }
+    } else {
+      final dir = await getApplicationSupportDirectory();
+      _path = p.join(dir.path, 'storage');
+    }
+    if (mounted) setState(() {});
     await _refreshFreeSpace();
   }
 

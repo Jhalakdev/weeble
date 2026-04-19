@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 import '../security/embedded_keys.dart';
 import '../state/auth.dart';
+import '../state/config.dart';
 import '../state/host_runtime.dart';
 import 'file_index.dart';
 
@@ -156,6 +157,27 @@ class HostTunnel {
         return;
       }
 
+      if (method == 'GET' && path == '/stats') {
+        final used = await runtime.index.totalSize();
+        final files = await runtime.index.list();
+        final cfg = ref.read(appConfigProvider);
+        final json = jsonEncode({
+          'used_bytes': used,
+          'allocated_bytes': cfg.allocatedBytes ?? 0,
+          'file_count': files.length,
+        });
+        _sendResponse(id, 200, {'content-type': 'application/json'}, utf8.encode(json));
+        return;
+      }
+      if (method == 'GET' && path == '/storage-history') {
+        // Returns the last N daily snapshots so the website can plot a real
+        // "storage over time" line. Data is collected once per day by
+        // HostLifecycle (see _snapshotStorageHistory).
+        final history = await runtime.index.storageHistory(days: 30);
+        final json = jsonEncode({'history': history});
+        _sendResponse(id, 200, {'content-type': 'application/json'}, utf8.encode(json));
+        return;
+      }
       if (method == 'GET' && path == '/files') {
         // includeDeleted defaults to false on FileIndex.list, so soft-deleted
         // entries are filtered out automatically.

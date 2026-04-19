@@ -3,32 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 
-/// Lavender-gradient line chart (matches "Storage" card in CloudBox).
-/// Data is optional — if null, draws a placeholder curve.
+/// Lavender-gradient line chart of real storage usage over time.
+/// `spots` come from FileIndex.storageHistory(); a daily snapshot is taken
+/// by HostLifecycle. Empty/single-point shows an empty axis (no fake data).
 class StorageLineChart extends StatelessWidget {
   const StorageLineChart({super.key, this.spots});
   final List<FlSpot>? spots;
 
-  static const _labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  static const _placeholder = [
-    FlSpot(0, 30),
-    FlSpot(1, 55),
-    FlSpot(2, 42),
-    FlSpot(3, 62),
-    FlSpot(4, 38),
-    FlSpot(5, 70),
-    FlSpot(6, 40),
-    FlSpot(7, 60),
-    FlSpot(8, 55),
-    FlSpot(9, 75),
-    FlSpot(10, 50),
-    FlSpot(11, 68),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    final data = spots ?? _placeholder;
+    final data = spots ?? const <FlSpot>[];
     final c = context.weeberColors;
+    if (data.length < 2) {
+      return Center(
+        child: Text(
+          data.isEmpty ? 'No data yet' : 'Day 1 — chart will fill in over time',
+          style: GoogleFonts.poppins(fontSize: 12, color: c.textMuted),
+        ),
+      );
+    }
     return LineChart(
       LineChartData(
         gridData: FlGridData(
@@ -40,17 +33,7 @@ class StorageLineChart extends StatelessWidget {
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 26,
-            getTitlesWidget: (value, meta) => Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _labels[value.toInt() % 12],
-                style: GoogleFonts.poppins(color: c.textMuted, fontSize: 10),
-              ),
-            ),
-          )),
+          bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: false),
         minY: 0, maxY: 100,

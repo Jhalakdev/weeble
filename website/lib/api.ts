@@ -72,4 +72,14 @@ export const api = {
     request<{ files: Array<{ id: string; name: string; size: number; mime: string; created_at: number; parent_id: string | null }> }>('/v1/relay/files', {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => null),
+
+  relayStats: (token: string) =>
+    request<{ used_bytes: number; allocated_bytes: number; file_count: number }>('/v1/relay/stats', {
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => null),
+
+  relayStorageHistory: (token: string) =>
+    request<{ history: Array<{ day: number; used_bytes: number }> }>('/v1/relay/storage-history', {
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => null),
 };

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,11 +31,23 @@ class DriveScreen extends ConsumerStatefulWidget {
 class _DriveScreenState extends ConsumerState<DriveScreen> {
   bool _dragging = false;
   List<FileEntry> _files = [];
+  Timer? _poll;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+    // Poll the local FileIndex every 3s so files uploaded from a phone
+    // (which arrive via the WebSocket tunnel and get inserted by
+    // host_tunnel.dart) appear on the Mac dashboard without needing a
+    // manual refresh. Cheap — single SQLite query.
+    _poll = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -41,7 +55,18 @@ class _DriveScreenState extends ConsumerState<DriveScreen> {
     if (runtime == null) return;
     final files = await runtime.index.list();
     if (!mounted) return;
+    // Only setState when the list actually changed — avoids a full rebuild
+    // every 3s when nothing has happened.
+    if (_filesEqual(_files, files)) return;
     setState(() { _files = files; });
+  }
+
+  static bool _filesEqual(List<FileEntry> a, List<FileEntry> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].size != b[i].size) return false;
+    }
+    return true;
   }
 
   Future<void> _pickAndUpload() async {
@@ -374,8 +399,37 @@ class _FilesRow extends StatelessWidget {
   }
 }
 
-class _BottomRow extends StatelessWidget {
+class _BottomRow extends ConsumerStatefulWidget {
   const _BottomRow();
+  @override
+  ConsumerState<_BottomRow> createState() => _BottomRowState();
+}
+
+class _BottomRowState extends ConsumerState<_BottomRow> {
+  List<FlSpot>? _spots;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    final runtime = await ref.read(hostRuntimeProvider.future);
+    if (runtime == null) return;
+    final rows = await runtime.index.storageHistory(days: 30);
+    if (!mounted || rows.isEmpty) return;
+    // SQL returned newest-first; chart wants oldest-first.
+    final ordered = rows.reversed.toList();
+    final maxBytes = ordered.fold<int>(0, (m, r) => (r['used_bytes'] as int) > m ? r['used_bytes'] as int : m);
+    final scale = maxBytes > 0 ? 100.0 / maxBytes : 1.0;
+    final spots = <FlSpot>[];
+    for (var i = 0; i < ordered.length; i++) {
+      spots.add(FlSpot(i.toDouble(), (ordered[i]['used_bytes'] as int) * scale));
+    }
+    setState(() => _spots = spots);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.weeberColors;
@@ -388,8 +442,17 @@ class _BottomRow extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Storage over time', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: c.textPrimary)),
+            const SizedBox(height: 4),
+            Text(
+              _spots == null
+                ? 'Loading…'
+                : _spots!.length < 2
+                  ? 'Tracking starts today. The line fills in as days pass.'
+                  : 'Last ${_spots!.length} day${_spots!.length == 1 ? '' : 's'}',
+              style: GoogleFonts.poppins(fontSize: 11, color: c.textMuted),
+            ),
             const SizedBox(height: 10),
-            const SizedBox(height: 160, child: StorageLineChart()),
+            SizedBox(height: 160, child: StorageLineChart(spots: _spots)),
           ],
         ),
       );

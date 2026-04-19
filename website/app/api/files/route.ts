@@ -26,7 +26,10 @@ export async function GET() {
 
   // Try the relay; if it times out, surface that distinctly so the UI
   // can show a meaningful "online but unreachable" state.
-  const res = await api.relayFiles(token);
+  const [res, stats] = await Promise.all([
+    api.relayFiles(token),
+    api.relayStats(token),
+  ]);
   if (!res) {
     return NextResponse.json({
       files: [],
@@ -41,6 +44,7 @@ export async function GET() {
     host_online: true,
     host_name: activeHost.name ?? null,
     reachable: true,
+    stats: stats ?? null,
   });
 }
 
